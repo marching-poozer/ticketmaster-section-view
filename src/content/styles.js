@@ -51,6 +51,13 @@ export const VIEW_CSS = `
 }
 .icon-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.18); }
 .counter { font-size: ${uh(11)}; color: rgba(255, 255, 255, 0.85); margin-top: ${uh(1)}; }
+.auto-zoom { display: inline-flex; align-items: center; gap: ${uh(4)}; margin-top: ${uh(3)}; font-size: ${uh(11)}; color: rgba(255, 255, 255, 0.9); cursor: pointer; user-select: none; }
+.auto-zoom[hidden] { display: none; }
+.auto-zoom-box { margin: 0; accent-color: #ffb300; cursor: pointer; }
+.show-on-map { display: none; flex: none; background: #ffffff; color: var(--blue); border: 1px solid var(--border); border-radius: ${u(10)}; padding: ${u(2)} ${u(8)}; font-size: ${u(10)}; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.show-on-map:hover { background: #eef4ff; border-color: var(--blue); }
+.sv.map-buttons .show-on-map { display: inline-block; }
+.ticket > .show-on-map { grid-column: 2; grid-row: 2; justify-self: end; align-self: end; }
 .map-note { font-size: ${uh(10)}; color: rgba(255, 255, 255, 0.75); margin-top: ${uh(1)}; font-style: italic; }
 .status {
   background: rgba(255, 255, 255, 0.22); padding: ${uh(3)} ${uh(8)}; border-radius: ${uh(10)};

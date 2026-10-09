@@ -37,6 +37,24 @@ function badgeNode(b, iconOnly) {
  * visually hidden text, for a screen reader that reads the card on its own.
  */
 /** `hooks`: { click(ticket), hover(ticket | null) }. */
+/** A button that must neither select the ticket nor open / close the section it sits in. */
+function showOnMapButton(label, title, onShow) {
+  return h('button', {
+    type: 'button',
+    class: 'show-on-map',
+    title,
+    'aria-label': title,
+    text: label,
+    on: {
+      click: function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        onShow();
+      },
+    },
+  });
+}
+
 function ticketRow(ticket, sectionName, hooks) {
   const groups = groupBadges(describeBadges(ticket, sectionName));
   const seats = describeSeats(ticket);
@@ -77,7 +95,8 @@ function ticketRow(ticket, sectionName, hooks) {
         class: 'ticket-price',
         text: ticket.price > 0 ? formatPrice(ticket.price, ticket.currency) : 'View Details',
       })
-    )
+    ),
+    hooks.show ? showOnMapButton('🗺 Show on map', 'Show these seats on the venue\'s map', function () { hooks.show(ticket); }) : null
   );
 }
 
@@ -144,7 +163,7 @@ function sectionNode(group, sort, expanded, hooks, onSectionHover, mouse) {
     },
     h(
       'summary',
-{},
+      {},
       h(
         'span',
         { class: 'section-name' },
@@ -155,7 +174,8 @@ function sectionNode(group, sort, expanded, hooks, onSectionHover, mouse) {
           h('span', { class: 'count', text: '(' + group.tickets.length + ')' })
         )
       ),
-      h('span', { class: 'best', text: formatBestTicketLabel(group.topTicket, sort) })
+      h('span', { class: 'best', text: formatBestTicketLabel(group.topTicket, sort) }),
+      hooks.showSection ? showOnMapButton('🗺 Show on map', 'Show this section on the venue\'s map', function () { hooks.showSection(group.name); }) : null
     ),
     h(
       'div',
@@ -175,6 +195,9 @@ function sectionNode(group, sort, expanded, hooks, onSectionHover, mouse) {
 export function createView(handlers, version) {
   const counter = h('div', { class: 'counter', text: 'Total Loaded: 0' });
   const mapNote = h('div', { class: 'map-note', hidden: true });
+  const autoZoomBox = h('input', { type: 'checkbox', class: 'auto-zoom-box', on: { change: function () { autoZoom = autoZoomBox.checked; syncMapControls(); if (handlers.onAutoZoomChange) handlers.onAutoZoomChange(autoZoom); } } });
+  autoZoomBox.checked = true;
+  const autoZoomLabel = h('label', { class: 'auto-zoom', hidden: true, title: 'Zoom the venue\'s seat map by itself as the mouse rests on an open section. Off, each section and ticket has a "Show on map" button instead.' }, autoZoomBox, ' Auto zoom map');
   const status = h('span', { class: 'status', text: 'Checking...' });
 
   const search = h('input', {
@@ -462,7 +485,8 @@ export function createView(handlers, version) {
           {},
           h('div', { class: 'title' }, h('span', { class: 'title-text', text: 'Section View' }), h('span', { class: 'version', text: 'v' + version })),
           counter,
-          mapNote
+          mapNote,
+          autoZoomLabel
         ),
         h(
           'div',
@@ -496,6 +520,14 @@ export function createView(handlers, version) {
   let highlightedSection = null; // the section the mouse is over on the map
   const mouse = { section: null }; // the section the mouse is on in this list
   const onTicketHover = function (ticket) { if (handlers.onTicketHover) handlers.onTicketHover(ticket); };
+  const onShowTicket = function (ticket) { if (handlers.onShowTicket) handlers.onShowTicket(ticket); };
+  const onShowSection = function (name) { if (handlers.onShowSection) handlers.onShowSection(name); };
+  let mapPresent = false; // the page has an interactive seat map
+  let autoZoom = true; // ...which zooms by itself as the mouse rests on a section
+  const syncMapControls = function () {
+    autoZoomLabel.hidden = !mapPresent;
+    root.classList.toggle('map-buttons', mapPresent && !autoZoom);
+  };
   const onSectionHover = function (name, open) { if (handlers.onSectionHover) handlers.onSectionHover(name, open === true); };
   const sectionElement = function (name) {
     return Array.from(content.querySelectorAll('.section')).find(function (el) { return el.getAttribute('data-section') === name; }) || null;
@@ -603,6 +635,19 @@ export function createView(handlers, version) {
       }
     },
 
+    /** Whether the page has an interactive seat map: the "Auto zoom map" option is only there when it has. */
+    setMapAvailable(present) {
+      mapPresent = present === true;
+      syncMapControls();
+    },
+
+    /** Whether the seat map zooms by itself (the checkbox); when it does not, sections and tickets get "Show on map" buttons. */
+    setAutoZoom(on) {
+      autoZoom = on !== false;
+      autoZoomBox.checked = autoZoom;
+      syncMapControls();
+    },
+
     /** A line under the counter about the venue's seat map (what its grey blocks mean), or none with null. */
     setMapNote(text) {
       mapNote.hidden = !text;
@@ -677,7 +722,7 @@ export function createView(handlers, version) {
 
     renderGroups(groups, sort, onTicketClick) {
       content.replaceChildren(
-        ...groups.map(function (g) { return sectionNode(g, sort, expanded, { click: onTicketClick, hover: onTicketHover }, onSectionHover, mouse); })
+        ...groups.map(function (g) { return sectionNode(g, sort, expanded, { click: onTicketClick, hover: onTicketHover, show: onShowTicket, showSection: onShowSection }, onSectionHover, mouse); })
       );
       applySectionHighlight();
     },

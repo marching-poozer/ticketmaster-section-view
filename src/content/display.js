@@ -32,12 +32,15 @@ export async function initDisplay() {
   /** Build the app and its two hosts, and make one of them responsible for the view. */
   function build() {
     // The venue's seat map, where the page has one: our filters dim its empty blocks, and the map and the list light each other up.
+    let app = null; // the map and the app each call the other: the map is made first
     const map = createMapLink({
-      onHover(name) { app.highlightSection(name); },
-      onClick(name) { app.openSection(name); },
+      onHover(name) { if (app) app.highlightSection(name); },
+      onClick(name) { if (app) app.openSection(name); },
+      onPresence(present) { if (app) app.setMapAvailable(present); },
     });
     map.setEnabled(settings.mapLink);
-    const app = createApp({
+    map.setAutoZoom(settings.autoZoomMap);
+    app = createApp({
       settings,
       version: chrome.runtime.getManifest().version,
       onSections(state) {
@@ -46,7 +49,10 @@ export async function initDisplay() {
       },
       onSectionHover(name, open) { map.hover(name, open); },
       onTicketHover(ticket) { map.hoverTicket(ticket); },
+      onShowSection(name) { map.showSection(name); },
+      onShowTicket(ticket) { map.showTicket(ticket); },
     });
+    app.setMapAvailable(map.present());
     const pane = createPane(app, settings, { active: false });
     const inline = createInline(app, {
       onAvailability(isAvailable) {
@@ -99,6 +105,7 @@ export async function initDisplay() {
     const wasOn = settings.enabled;
     const before = settings.displayMode;
     const mapBefore = settings.mapLink;
+    const zoomBefore = settings.autoZoomMap;
     settings = applySettingsChanges(settings, changes);
 
     if (settings.enabled !== wasOn) {
@@ -112,6 +119,7 @@ export async function initDisplay() {
     live.app.updateSettings(settings);
     live.app.handleStorageChange(changes);
     if (settings.mapLink !== mapBefore) live.map.setEnabled(settings.mapLink);
+    if (settings.autoZoomMap !== zoomBefore) live.map.setAutoZoom(settings.autoZoomMap);
     if (settings.displayMode !== before) reconcile();
   }
 

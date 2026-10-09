@@ -18,9 +18,9 @@ import { createView } from './view.js';
 /**
  * `onSections({ sections, visible, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
  * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it;
- * `onTicketHover(ticket | null)` likewise for a ticket.
+ * `onTicketHover(ticket | null)` likewise for a ticket; `onShowSection(name)` / `onShowTicket(ticket)`: its "Show on map" button was pressed.
  */
-export function createApp({ settings, version, readerDeps, onSections, onSectionHover, onTicketHover }) {
+export function createApp({ settings, version, readerDeps, onSections, onSectionHover, onTicketHover, onShowSection, onShowTicket }) {
   // Behaviour that depends on where the view is hosted; see configure().
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
@@ -107,6 +107,15 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
       onTicketHover(ticket) {
         if (onTicketHover) onTicketHover(ticket);
       },
+      onShowSection(name) {
+        if (onShowSection) onShowSection(name);
+      },
+      onShowTicket(ticket) {
+        if (onShowTicket) onShowTicket(ticket);
+      },
+      onAutoZoomChange(on) {
+        saveSettings({ autoZoomMap: on });
+      },
       onSaveVenue({ firstRows, frontRows, badges }) {
         if (!venue) return;
         venueEdits++;
@@ -142,6 +151,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     version
   );
   view.setSort(state.sort);
+  view.setAutoZoom(settings.autoZoomMap);
   view.setBadgeFilters(state.badgeFilters, state.hideFilters);
   view.setSeat(state.seat);
   view.setFrontRows(rowConfig().frontRows);
@@ -273,6 +283,11 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
       view.highlightSection(name);
     },
 
+    /** Whether the page has an interactive seat map (the header then offers "Auto zoom map"). */
+    setMapAvailable(present) {
+      view.setMapAvailable(present);
+    },
+
     /** A line about the venue's seat map under the counter (or none, with null). */
     setMapNote(text) {
       view.setMapNote(text);
@@ -309,6 +324,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     /** The global settings changed: text size, how many rows count as the front by default, the global badges. */
     updateSettings(next) {
       this.setUiSize(next.uiSize);
+      if (typeof next.autoZoomMap === 'boolean') view.setAutoZoom(next.autoZoomMap);
       if (next.loadMode) reader.setLoadMode(next.loadMode);
       const badgesChanged = JSON.stringify(next.customBadges || []) !== JSON.stringify(globalBadges);
       if (next.frontRows !== defaultFrontRows || badgesChanged) {

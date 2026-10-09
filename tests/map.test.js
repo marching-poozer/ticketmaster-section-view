@@ -743,6 +743,188 @@ describe('an overview map that has seats drawn in it (the real one keeps them: t
   });
 });
 
+describe('Auto zoom map off, and the Show on map buttons', () => {
+  const eventsOn = (path) => { const got = []; ['mouseover', 'mouseenter', 'click'].forEach((t) => path.addEventListener(t, () => got.push(t))); return got; };
+
+  it('does not zoom by itself when the mouse rests on an open section: it shows the block\'s tooltip, as for a closed one', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.setAutoZoom(false);
+    show('NTHU3');
+    const events = eventsOn(block('NORTH UPPER 3'));
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(200);
+    expect(events).toEqual(['mouseover', 'mouseenter']); // the tooltip's hover, after the short pause
+    vi.advanceTimersByTime(2000);
+    expect(events).not.toContain('click');
+    expect(outlined()).toEqual([dOf('NORTH UPPER 3')]); // and the block is outlined, as ever
+  });
+
+  it('zooms by itself again when switched back on', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.setAutoZoom(false);
+    link.setAutoZoom(true);
+    show('NTHU3');
+    const events = eventsOn(block('NORTH UPPER 3'));
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(450);
+    expect(events).toEqual(['click']);
+  });
+
+  it('forgets a pending zoom when auto zoom is switched off', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    show('NTHU3');
+    const events = eventsOn(block('NORTH UPPER 3'));
+    link.hover('NTHU3', true);
+    link.setAutoZoom(false);
+    vi.advanceTimersByTime(1000);
+    expect(events).toEqual([]);
+  });
+
+  it('showSection opens the map at the section at once, whatever the setting', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.setAutoZoom(false);
+    show('NTHU3');
+    const events = eventsOn(block('NORTH UPPER 3'));
+    link.showSection('NTHU3');
+    expect(events).toEqual(['click']); // no pause: it was asked for
+  });
+
+  it('showSection on a map that is zoomed in resets it first, then goes to the section', () => {
+    buildZoomed();
+    zoomOutOnReset();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8', 'NTHM3', 'WESTU1']), ready: true });
+    const target = [];
+    document.getElementById('main').addEventListener('click', (e) => { if (e.target.getAttribute && e.target.getAttribute('data-section-name') === 'WEST UPPER 1') target.push('clicked'); });
+    const reset = [];
+    document.getElementById('reset').addEventListener('click', () => reset.push('pressed'));
+    link.showSection('WESTU1');
+    expect(reset).toEqual(['pressed']);
+    vi.advanceTimersByTime(600);
+    expect(target).toEqual(['clicked']);
+  });
+
+  it('showTicket opens its section and keeps its seats ringed after the mouse has gone', () => {
+    buildZoomed();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8']), ready: true });
+    link.showTicket(east); // already showing EASTL8 (zoomed in): nothing to open, but ring the seats
+    expect(rings()).toEqual([['7807.4', '5568.85'], ['7771.18', '5593.38']]);
+    vi.advanceTimersByTime(5000);
+    expect(rings()).toHaveLength(2); // stays
+    link.hoverTicket(null);
+    expect(rings()).toHaveLength(2); // the mouse leaving a ticket does not take the shown ticket away
+  });
+
+  it('rings both the shown ticket and the one the mouse is on', () => {
+    buildZoomed();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8']), ready: true });
+    link.showTicket(east);
+    link.hoverTicket({ section: 'EASTL8', rowName: 'K', seatFrom: '141', seatTo: '141' });
+    expect(rings()).toHaveLength(3);
+    link.hoverTicket(null);
+    expect(rings()).toHaveLength(2);
+  });
+
+  it('showing another ticket, or a section, replaces what was shown', () => {
+    buildZoomed();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8']), ready: true });
+    link.showTicket(east);
+    link.showTicket({ section: 'EASTL8', rowName: 'K', seatFrom: '142', seatTo: '142' });
+    expect(rings()).toEqual([['7808.36', '5652.27']]);
+    link.showSection('EASTL8');
+    expect(rings()).toEqual([]);
+  });
+
+  it('forgets the shown ticket when the map is zoomed out', () => {
+    buildZoomed();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8']), ready: true });
+    link.showTicket(east);
+    expect(rings()).toHaveLength(2);
+    vi.advanceTimersByTime(1100); // the map is seen zoomed in, with the ticket shown
+    zoomOutOnReset();
+    document.getElementById('reset').click(); // the user zooms the map out
+    vi.advanceTimersByTime(1100);
+    expect(document.querySelectorAll('g[data-tmsv-overlay] circle')).toHaveLength(0);
+    // and a ticket shown later is not ringed by the old one's seats
+    link.hoverTicket(null);
+    expect(document.querySelectorAll('g[data-tmsv-overlay] circle')).toHaveLength(0);
+  });
+});
+
+describe('acting on the map as it is now, not as it was at the last look', () => {
+  it('a button pressed straight after the map zoomed in (between two looks) still resets it first', () => {
+    buildMap(); // what the adapter has seen: the overview
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8', 'NTHM3', 'WESTU1']), ready: true });
+    buildZoomed(); // ...then the map zooms in, and no second has passed
+    zoomOutOnReset();
+    const reset = [];
+    document.getElementById('reset').addEventListener('click', () => reset.push('pressed'));
+    const target = [];
+    document.getElementById('main').addEventListener('click', (e) => { if (e.target.getAttribute && e.target.getAttribute('data-section-name') === 'WEST UPPER 1') target.push('clicked'); });
+    link.showSection('WESTU1');
+    expect(reset).toEqual(['pressed']);
+    vi.advanceTimersByTime(600);
+    expect(target).toEqual(['clicked']);
+  });
+
+  it('a hover straight after the map zoomed out is not taken for a zoomed map', () => {
+    buildZoomed();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8', 'NTHM3', 'WESTU1']), ready: true });
+    buildMap(); // the user zoomed out: the overview is back, and no second has passed
+    const seen = [];
+    block('WEST UPPER 1').addEventListener('mouseover', () => seen.push('over'));
+    link.update({ sections: sections, visible: new Set(['NTHU3']), ready: true });
+    link.hover('WESTU1', false);
+    vi.advanceTimersByTime(200);
+    expect(seen).toEqual(['over']); // the tooltip: only an overview shows one
+  });
+});
+
+describe('knowing whether the page has an interactive map', () => {
+  it('says so, and tells when that changes', () => {
+    document.body.innerHTML = '<p>no map yet</p>';
+    const onPresence = vi.fn();
+    link = createMapLink({ onPresence, log: () => {} });
+    expect(link.present()).toBe(false);
+    expect(onPresence).not.toHaveBeenCalled();
+    buildMap();
+    vi.advanceTimersByTime(1100);
+    expect(link.present()).toBe(true);
+    expect(onPresence).toHaveBeenLastCalledWith(true);
+    document.body.innerHTML = '<p>gone</p>';
+    vi.advanceTimersByTime(1100);
+    expect(link.present()).toBe(false);
+    expect(onPresence).toHaveBeenLastCalledWith(false);
+    expect(onPresence).toHaveBeenCalledTimes(2);
+  });
+
+  it('says so at once when the map is there to begin with', () => {
+    buildMap();
+    const onPresence = vi.fn();
+    link = createMapLink({ onPresence, log: () => {} });
+    expect(onPresence).toHaveBeenCalledWith(true);
+  });
+
+  it('says there is none when switched off', () => {
+    buildMap();
+    const onPresence = vi.fn();
+    link = createMapLink({ onPresence, log: () => {} });
+    link.setEnabled(false);
+    expect(link.present()).toBe(false);
+    expect(onPresence).toHaveBeenLastCalledWith(false);
+  });
+});
+
 describe('knowing whether the map is zoomed in', () => {
   it('a single map with one block and seats is zoomed in (the overview has not appeared yet)', () => {
     const { mini } = buildZoomed();

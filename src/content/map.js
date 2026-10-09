@@ -56,7 +56,8 @@ export function seatsOf(ticket) {
 /**
  * `options.onHover(name | null)`, `options.onClick(name)`: called with a section's name (as in our list).
  * `options.log(message)` hears what it works out (default: the console). `options.document` is for tests.
- * Returns { update, summary, highlight, hover, hoverTicket, setEnabled, destroy }.
+ * `options.onPresence(bool)` hears when the page gains or loses an interactive map.
+ * Returns { update, summary, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
  */
 export function createMapLink(options) {
   const opts = options || {};
@@ -64,6 +65,10 @@ export function createMapLink(options) {
   const log = opts.log || function (message) { console.log(LOG_PREFIX + message); };
 
   let enabled = true;
+  let autoZoom = true; // open a section on the map by itself when the mouse rests on it (else only on request: showSection / showTicket)
+  let present = false; // the page has an interactive map
+  let pinned = null; // { section, row, seats }: a ticket "shown on the map", ringed until something else is shown
+  let pinnedWasZoomed = false;
   const bindings = []; // one per svg with blocks: { svg, blocks, links, overlay, drawn, listeners }
   let timer = null;
   let sections = []; // [{ name, tickets }]: every section, whatever the filters leave
@@ -144,21 +149,22 @@ export function createMapLink(options) {
     return path;
   }
 
-  /** The seat circles of the ticket the mouse is on, in this map: [{ cx, cy, r }]. */
+  /** The seat circles of the tickets the mouse is on, and the one shown on the map, in this map: [{ cx, cy, r }]. */
   function seatsToRing(binding) {
-    if (!seatTarget) return [];
-    const section = keyOf(seatTarget.section);
-    const row = String(seatTarget.row == null ? '' : seatTarget.row).trim().toUpperCase();
-    const wanted = new Set(seatTarget.seats);
     const found = [];
-    binding.svg.querySelectorAll(SEAT_BLOCK_SELECTOR).forEach(function (block) {
-      if (keyOf(block.getAttribute('data-section-name')) !== section) return;
-      block.querySelectorAll('g[data-row-name]').forEach(function (rowEl) {
-        if (rowEl.getAttribute('data-row-name').trim().toUpperCase() !== row) return;
-        rowEl.querySelectorAll('circle[data-component="svg__seat"]').forEach(function (seat) {
-          if (wanted.has((seat.getAttribute('data-seat-name') || '').trim())) {
-            found.push({ cx: seat.getAttribute('cx'), cy: seat.getAttribute('cy'), r: parseFloat(seat.getAttribute('r')) || 15 });
-          }
+    [seatTarget, pinned].forEach(function (target) {
+      if (!target) return;
+      const section = keyOf(target.section);
+      const row = String(target.row == null ? '' : target.row).trim().toUpperCase();
+      const wanted = new Set(target.seats);
+      binding.svg.querySelectorAll(SEAT_BLOCK_SELECTOR).forEach(function (block) {
+        if (keyOf(block.getAttribute('data-section-name')) !== section) return;
+        block.querySelectorAll('g[data-row-name]').forEach(function (rowEl) {
+          if (rowEl.getAttribute('data-row-name').trim().toUpperCase() !== row) return;
+          rowEl.querySelectorAll('circle[data-component="svg__seat"]').forEach(function (seat) {
+            const ring = { cx: seat.getAttribute('cx'), cy: seat.getAttribute('cy'), r: parseFloat(seat.getAttribute('r')) || 15 };
+            if (wanted.has((seat.getAttribute('data-seat-name') || '').trim()) && !found.some(function (f) { return f.cx === ring.cx && f.cy === ring.cy; })) found.push(ring);
+          });
         });
       });
     });
@@ -299,7 +305,12 @@ export function createMapLink(options) {
     bindings.push(binding);
   }
 
-  function ensure() {
+  /**
+   * Look at the page again: which maps there are and what blocks they hold. Done once a second, and before anything is done
+   * to the map: the map changes as it zooms, and acting on what it was a moment ago (a block that has gone, a zoom that
+   * has ended) does nothing at all.
+   */
+  function refresh() {
     const found = enabled ? findSvgs() : [];
     bindings.slice().forEach(function (b) { if (found.indexOf(b.svg) < 0) unbind(b); });
     found.forEach(function (svg) { if (!bindings.some(function (b) { return b.svg === svg; })) bind(svg); });
@@ -310,8 +321,19 @@ export function createMapLink(options) {
         relink(b);
       }
     });
-    if (!isZoomed()) openedByUs = null; // zoomed out again: the next open is a fresh one
+  }
+
+  function ensure() {
+    refresh();
+    const zoomed = isZoomed();
+    if (!zoomed) openedByUs = null; // zoomed out again: the next open is a fresh one
+    if (zoomed) pinnedWasZoomed = true;
+    else if (pinnedWasZoomed) { pinned = null; pinnedWasZoomed = false; } // the map was zoomed out (reset): what was shown on it goes
     drawAll();
+    if (present !== (bindings.length > 0)) {
+      present = bindings.length > 0;
+      if (opts.onPresence) opts.onPresence(present);
+    }
   }
 
   function startPolling() {
@@ -355,6 +377,7 @@ export function createMapLink(options) {
   }
 
   function startPreview(name) {
+    refresh();
     if (isZoomed()) return; // a block's tooltip belongs to the overview; the zoomed map shows seats
     const target = targetFor(name);
     if (!target) return;
@@ -371,6 +394,7 @@ export function createMapLink(options) {
   }
 
   function clickBlock(name) {
+    refresh();
     const target = targetFor(name);
     if (!target) return;
     stopPreview();
@@ -411,6 +435,7 @@ export function createMapLink(options) {
 
   /** Open the map at a section. If it is zoomed in already, zoom it out first, then go to the new place. */
   function openBlock(name) {
+    refresh();
     if (!isZoomed()) {
       clickBlock(name);
       return;
@@ -486,13 +511,46 @@ export function createMapLink(options) {
       }
       intent = setTimeout(function () {
         intent = null;
-        if (open) openBlock(name);
+        if (open && autoZoom) openBlock(name);
         else startPreview(name);
-      }, open ? OPEN_DELAY_MS : PREVIEW_DELAY_MS);
+      }, open && autoZoom ? OPEN_DELAY_MS : PREVIEW_DELAY_MS);
+    },
+
+    /** Whether the page has an interactive map right now. */
+    present() {
+      return bindings.length > 0;
+    },
+
+    /** Zoom the map by itself when the mouse rests on an open section (the default), or only on request. */
+    setAutoZoom(on) {
+      autoZoom = on !== false;
+      if (!autoZoom) cancelIntent();
+    },
+
+    /** Open the map at a section now (the "Show on map" button of a section). */
+    showSection(name) {
+      cancelIntent();
+      stopPreview();
+      pinned = null;
+      pinnedWasZoomed = false;
+      drawAll();
+      openBlock(name);
+    },
+
+    /** Open the map at a ticket's section now and ring its seats until something else is shown (the ticket's "Show on map" button). */
+    showTicket(ticket) {
+      cancelIntent();
+      stopPreview();
+      pinned = { section: ticket.section, row: ticket.rowName, seats: seatsOf(ticket) };
+      pinnedWasZoomed = false;
+      openBlock(ticket.section);
+      drawAll();
+      scheduleRedraws();
     },
 
     /** The mouse is over a ticket in our list (or has left it, with null): ring its seats on the zoomed map. */
     hoverTicket(ticket) {
+      refresh();
       seatTarget = ticket ? { section: ticket.section, row: ticket.rowName, seats: seatsOf(ticket) } : null;
       drawAll();
       if (seatTarget) scheduleRedraws();

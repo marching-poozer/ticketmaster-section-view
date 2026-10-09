@@ -22,6 +22,7 @@ export async function init() {
 
   const enabledBox = document.getElementById('enabled');
   const mapBox = document.getElementById('map-link');
+  const autoZoomBox = document.getElementById('auto-zoom-map');
   const widthLabel = document.getElementById('width-label');
   const resetWidth = document.getElementById('reset-width');
   const sideRadios = Array.from(document.querySelectorAll('input[name="paneSide"]'));
@@ -126,6 +127,7 @@ export async function init() {
   function render() {
     enabledBox.checked = settings.enabled;
     mapBox.checked = settings.mapLink;
+    autoZoomBox.checked = settings.autoZoomMap;
     frontRowsInput.value = String(settings.frontRows);
     modeRadios.forEach(function (r) { r.checked = r.value === settings.displayMode; });
     sizeRadios.forEach(function (r) { r.checked = r.value === settings.uiSize; });
@@ -150,6 +152,10 @@ export async function init() {
     change({ mapLink: e.target.checked });
   }
   mapBox.addEventListener('change', onMapChange);
+  function onAutoZoomChange(e) {
+    change({ autoZoomMap: e.target.checked });
+  }
+  autoZoomBox.addEventListener('change', onAutoZoomChange);
   function onSideChange(e) {
     if (e.target.checked) change({ paneSide: e.target.value });
   }
@@ -204,6 +210,7 @@ export async function init() {
     destroy() {
       enabledBox.removeEventListener('change', onEnabledChange);
       mapBox.removeEventListener('change', onMapChange);
+      autoZoomBox.removeEventListener('change', onAutoZoomChange);
       sideRadios.forEach(function (r) { r.removeEventListener('change', onSideChange); });
       modeRadios.forEach(function (r) { r.removeEventListener('change', onModeChange); });
       sizeRadios.forEach(function (r) { r.removeEventListener('change', onSizeChange); });

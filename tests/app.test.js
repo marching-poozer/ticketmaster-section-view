@@ -663,6 +663,48 @@ describe('the venue\'s seat map', () => {
     expect(q('.map-note').hidden).toBe(true);
   });
 
+  it('has "Auto zoom map" only when told the page has a map, as the settings say', () => {
+    sampleCards();
+    make({ autoZoomMap: false });
+    app.start();
+    expect(q('.auto-zoom').hidden).toBe(true);
+    app.setMapAvailable(true);
+    expect(q('.auto-zoom').hidden).toBe(false);
+    expect(q('.auto-zoom-box').checked).toBe(false); // from the settings
+    expect(app.root.classList.contains('map-buttons')).toBe(true); // off: sections and tickets have a button
+    app.setMapAvailable(false);
+    expect(q('.auto-zoom').hidden).toBe(true);
+  });
+
+  it('saves a change to "Auto zoom map" as a setting, and follows a change made elsewhere (the options page)', async () => {
+    sampleCards();
+    make();
+    app.start();
+    app.setMapAvailable(true);
+    q('.auto-zoom-box').checked = false;
+    q('.auto-zoom-box').dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    expect(peekStorage('autoZoomMap')).toBe(false);
+    app.updateSettings({ ...normalizeSettings({}), autoZoomMap: true });
+    expect(q('.auto-zoom-box').checked).toBe(true);
+    expect(app.root.classList.contains('map-buttons')).toBe(false);
+  });
+
+  it('tells the map when a section\'s or a ticket\'s "Show on map" button is pressed', () => {
+    sampleCards();
+    const onShowSection = vi.fn();
+    const onShowTicket = vi.fn();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', autoZoomMap: false }), version: '1.2.3', onShowSection, onShowTicket });
+    document.body.append(app.root);
+    app.start();
+    app.setMapAvailable(true);
+    app.openSection('101');
+    qa('.section[data-section="101"] > summary .show-on-map')[0].click();
+    expect(onShowSection).toHaveBeenCalledWith('101');
+    qa('.section[data-section="101"] .ticket .show-on-map')[0].click();
+    expect(onShowTicket).toHaveBeenCalledWith(expect.objectContaining({ section: '101' }));
+  });
+
   it('works without a map to tell (no callbacks)', () => {
     sampleCards();
     make();

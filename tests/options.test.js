@@ -45,6 +45,40 @@ const widthLabel = () => document.getElementById('width-label').textContent;
 const reset = () => document.getElementById('reset-width');
 
 describe('options page', () => {
+  describe('auto zoom map', () => {
+    const box = () => document.getElementById('auto-zoom-map');
+    const flip = (checked) => {
+      box().checked = checked;
+      box().dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    it('is on by default, and shows that it was switched off', async () => {
+      await start();
+      expect(box().checked).toBe(true);
+      page.destroy();
+      page = null;
+      await start({ autoZoomMap: false });
+      expect(box().checked).toBe(false);
+    });
+
+    it('is saved as it changes, and follows the header\'s checkbox', async () => {
+      await start();
+      flip(false);
+      await flush();
+      expect(peekStorage('autoZoomMap')).toBe(false);
+      await saveSettings({ autoZoomMap: true }); // switched on in the list's header
+      await flush();
+      expect(box().checked).toBe(true);
+    });
+
+    it('says what it does, and where else it is', async () => {
+      await start();
+      const text = document.getElementById('autozoom').textContent;
+      expect(text).toMatch(/Show on map/);
+      expect(text).toMatch(/header/);
+    });
+  });
+
   describe('the seat map link', () => {
     const box = () => document.getElementById('map-link');
     const flip = (checked) => {

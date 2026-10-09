@@ -505,6 +505,101 @@ describe('the venue\'s seat map on the page', () => {
     expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
   });
 
+  describe('Auto zoom map, and the Show on map buttons', () => {
+    const shadow = () => inlineHost().shadowRoot;
+    const autoZoom = () => shadow().querySelector('.auto-zoom');
+    const box = () => shadow().querySelector('.auto-zoom-box');
+    const toggle = (checked) => { box().checked = checked; box().dispatchEvent(new Event('change', { bubbles: true })); };
+
+    it('is offered in the header on a page with a map, and not on one without', async () => {
+      buildTicketmasterPage();
+      await start({ loadMode: 'scroll' });
+      await settle(1200);
+      expect(autoZoom().hidden).toBe(true);
+      display.destroy();
+      display = null;
+
+      pageWithMap();
+      await start({ loadMode: 'scroll' });
+      await settle(1200);
+      expect(autoZoom().hidden).toBe(false);
+      expect(box().checked).toBe(true);
+      expect(shadow().querySelector('.sv').classList.contains('map-buttons')).toBe(false); // zooming by itself: no buttons
+    });
+
+    it('turns up when the map does, and goes when it does', async () => {
+      buildTicketmasterPage();
+      await start({ loadMode: 'scroll' });
+      await settle(1200);
+      expect(autoZoom().hidden).toBe(true);
+      document.body.insertAdjacentHTML('beforeend', '<svg data-component="svg" id="late"><path data-component="svg__section" data-section-id="s_1" data-section-name="BLOCKG" data-active="true" d="M0 0L9 0L9 9z"></path></svg>');
+      await settle(1200);
+      expect(autoZoom().hidden).toBe(false);
+      document.getElementById('late').remove();
+      await settle(1200);
+      expect(autoZoom().hidden).toBe(true);
+    });
+
+    it('switching it off is saved, brings the buttons, and stops the map zooming by itself', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll' });
+      await settle(1200);
+      const clicks = [];
+      block('BLOCKA').addEventListener('click', (e) => clicks.push(e.tmsv === true));
+      toggle(false);
+      await flush();
+      expect(peekStorage('autoZoomMap')).toBe(false);
+      expect(shadow().querySelector('.sv').classList.contains('map-buttons')).toBe(true);
+
+      listSection('BLOCKA').open = true;
+      listSection('BLOCKA').dispatchEvent(new MouseEvent('mouseenter'));
+      await settle(1000);
+      expect(clicks).toEqual([]); // rests on an open section: the map stays put
+    });
+
+    it('starts with it off when the settings say so', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll', autoZoomMap: false });
+      await settle(1200);
+      expect(box().checked).toBe(false);
+      expect(shadow().querySelector('.sv').classList.contains('map-buttons')).toBe(true);
+    });
+
+    it('a section\'s Show on map button opens the map at it, once, with no pause', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll', autoZoomMap: false });
+      await settle(1200);
+      const clicks = [];
+      block('BLOCKA').addEventListener('click', (e) => clicks.push(e.tmsv === true));
+      listSection('BLOCKA').querySelector('summary .show-on-map').click();
+      expect(clicks).toEqual([true]);
+      expect(listSection('BLOCKA').open).toBe(false); // the button did not open the section in the list
+    });
+
+    it('a ticket\'s Show on map button opens the map at its section, and does not select the ticket on Ticketmaster\'s page', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll', autoZoomMap: false });
+      await settle(1200);
+      const selected = vi.fn();
+      document.querySelectorAll('[data-testid="quickpicksList"] > div[role="button"]').forEach((c) => c.addEventListener('click', selected));
+      const clicks = [];
+      block('BLOCKA').addEventListener('click', () => clicks.push('block'));
+      listSection('BLOCKA').open = true;
+      listSection('BLOCKA').querySelector('.ticket .show-on-map').click();
+      expect(clicks).toEqual(['block']);
+      await settle(500);
+      expect(selected).not.toHaveBeenCalled();
+    });
+
+    it('hovering still outlines the block, with auto zoom off', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll', autoZoomMap: false });
+      await settle(1200);
+      listSection('BLOCKA').dispatchEvent(new MouseEvent('mouseenter'));
+      expect(Array.from(overlay().querySelectorAll('path[stroke]')).map((p) => p.getAttribute('d'))).toEqual([block('BLOCKA').getAttribute('d')]);
+    });
+  });
+
   it('is left out when the page has no such map: nothing breaks', async () => {
     buildTicketmasterPage();
     await start({ loadMode: 'scroll' });

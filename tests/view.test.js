@@ -17,6 +17,9 @@ function makeHandlers() {
     onOpenSettings: vi.fn(),
     onSectionHover: vi.fn(),
     onTicketHover: vi.fn(),
+    onShowSection: vi.fn(),
+    onShowTicket: vi.fn(),
+    onAutoZoomChange: vi.fn(),
   };
 }
 
@@ -943,6 +946,105 @@ describe('createView', () => {
       delete handlers.onTicketHover;
       expect(() => q('.section').dispatchEvent(new MouseEvent('mouseenter'))).not.toThrow();
       expect(() => q('.ticket').dispatchEvent(new MouseEvent('mouseenter'))).not.toThrow();
+    });
+  });
+
+  describe('Auto zoom map, and the Show on map buttons', () => {
+    const groupsFor = (...names) => names.map((name) => {
+      const ticket = { section: name, originalSection: name, row: 1, rowName: '1', price: 50, currency: '€', isResale: false, type: 'standard', title: 'Row 1', badges: {}, seat: '1', seatFrom: '1', seatTo: '1' };
+      return { name, tickets: [ticket], topTicket: ticket, rows: [{ row: 1, label: 'Row 1', tickets: [ticket], topTicket: ticket }] };
+    });
+    const visible = (el) => !el.hidden && getComputedStyle(el).display !== 'none';
+
+    it('has no such option on a page with no interactive map', () => {
+      const { q } = make();
+      expect(q('.auto-zoom').hidden).toBe(true);
+    });
+
+    it('offers "Auto zoom map", on, when the page has a map', () => {
+      const { view, q } = make();
+      view.setMapAvailable(true);
+      expect(q('.auto-zoom').hidden).toBe(false);
+      expect(q('.auto-zoom').textContent).toContain('Auto zoom map');
+      expect(q('.auto-zoom-box').checked).toBe(true);
+    });
+
+    it('tells the host when it is switched, and shows what the host says', () => {
+      const { view, handlers, q } = make();
+      view.setMapAvailable(true);
+      q('.auto-zoom-box').checked = false;
+      q('.auto-zoom-box').dispatchEvent(new Event('change', { bubbles: true }));
+      expect(handlers.onAutoZoomChange).toHaveBeenLastCalledWith(false);
+      view.setAutoZoom(true);
+      expect(q('.auto-zoom-box').checked).toBe(true);
+    });
+
+    it('has the "Show on map" buttons only with a map and with auto zoom off', () => {
+      const { view } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      view.openSection('NTHU3');
+      const rootHas = () => view.root.classList.contains('map-buttons');
+      expect(rootHas()).toBe(false); // no map
+      view.setMapAvailable(true);
+      expect(rootHas()).toBe(false); // auto zoom is on
+      view.setAutoZoom(false);
+      expect(rootHas()).toBe(true);
+      view.setAutoZoom(true);
+      expect(rootHas()).toBe(false);
+      view.setAutoZoom(false);
+      view.setMapAvailable(false);
+      expect(rootHas()).toBe(false); // the map went
+    });
+
+    it('puts a button on each section and each ticket', () => {
+      const { view, qa } = make();
+      view.renderGroups(groupsFor('NTHU3', 'WESTU1'), 'price', () => {});
+      expect(qa('.section > summary .show-on-map')).toHaveLength(2);
+      expect(qa('.section .ticket .show-on-map')).toHaveLength(2);
+    });
+
+    it('a section\'s button asks for that section, and neither opens nor closes it', () => {
+      const { view, handlers, q } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      const section = q('.section');
+      expect(section.open).toBe(false);
+      q('.section > summary .show-on-map').click();
+      expect(handlers.onShowSection).toHaveBeenCalledWith('NTHU3');
+      expect(section.open).toBe(false);
+    });
+
+    it('a ticket\'s button asks for that ticket, and does not select it', () => {
+      const { view, handlers, q } = make();
+      const onTicketClick = vi.fn();
+      view.renderGroups(groupsFor('NTHU3'), 'price', onTicketClick);
+      view.openSection('NTHU3');
+      q('.ticket .show-on-map').click();
+      expect(handlers.onShowTicket).toHaveBeenCalledWith(expect.objectContaining({ section: 'NTHU3', rowName: '1' }));
+      expect(onTicketClick).not.toHaveBeenCalled();
+    });
+
+    it('a ticket is still selected by a click anywhere else on it', () => {
+      const { view, q } = make();
+      const onTicketClick = vi.fn();
+      view.renderGroups(groupsFor('NTHU3'), 'price', onTicketClick);
+      view.openSection('NTHU3');
+      q('.ticket .ticket-price').click();
+      expect(onTicketClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('has no buttons for a host with no map', () => {
+      const { view, handlers, qa } = make();
+      delete handlers.onShowSection;
+      delete handlers.onShowTicket;
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      expect(() => qa('.show-on-map').forEach((b) => b.click())).not.toThrow();
+    });
+
+    it('the buttons say what they do, for those who cannot see the icon', () => {
+      const { view, q } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      expect(q('.section > summary .show-on-map').getAttribute('aria-label')).toMatch(/section on the venue's map/);
+      expect(q('.ticket .show-on-map').getAttribute('aria-label')).toMatch(/seats on the venue's map/);
     });
   });
 

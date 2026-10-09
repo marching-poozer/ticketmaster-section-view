@@ -63,6 +63,8 @@ export function normalizeSettings(raw) {
     enabled: s.enabled !== false,
     // Link our list to the venue's interactive seat map, where the page has one (dim the blocks our filters leave empty, hover and click).
     mapLink: s.mapLink !== false,
+    // Zoom the seat map by itself when the mouse rests on an open section (else a "Show on map" button does it on request).
+    autoZoomMap: s.autoZoomMap !== false,
     sort: SORTS.includes(s.sort) ? s.sort : 'row',
     // The seat and price choices used to be pills among the others in `badgeFilters`: carry those over.
     seatFilter: SEAT_KEYS.includes(s.seatFilter) ? s.seatFilter : legacySeat(legacy),
