@@ -675,6 +675,84 @@ describe('a map that is zoomed in', () => {
   });
 });
 
+describe('an overview map that has seats drawn in it (the real one keeps them: the map is not zoomed)', () => {
+  /** The overview: one svg with every block, and seats in g.seats as well (as on The O2 Belfast's page: a ring on one showed as a dot at NL2). */
+  function buildOverviewWithSeats() {
+    const svg = buildMap();
+    svg.querySelector('g.seats').innerHTML =
+      '<g data-component="svg__block" data-section-name="NTHU3" data-section-id="s_8" class="section"><g data-row-name="U">' +
+      '<circle data-component="svg__seat" id="x1" data-seat-name="40" cx="4970.45" cy="1487.06" r="14.875"></circle></g></g>';
+    return svg;
+  }
+  const ticket = { section: 'NTHU3', rowName: 'U', seatFrom: '40', seatTo: '40' };
+
+  it('is not zoomed in: opening a section clicks its block at once, with no reset', () => {
+    const svg = buildOverviewWithSeats();
+    const reset = document.createElement('button');
+    reset.setAttribute('aria-label', 'Reset zoom');
+    svg.parentNode.append(reset);
+    const pressed = vi.fn();
+    reset.addEventListener('click', pressed);
+    link = createMapLink({ log: () => {} });
+    show('NTHU3');
+    const clicks = [];
+    block('NORTH UPPER 3').addEventListener('click', (e) => clicks.push(e.tmsv === true));
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(450);
+    expect(clicks).toEqual([true]);
+    expect(pressed).not.toHaveBeenCalled();
+  });
+
+  it('draws no ring on it: the seats are too small to see, and the block is the answer', () => {
+    buildOverviewWithSeats();
+    link = createMapLink({ log: () => {} });
+    show('NTHU3');
+    link.hoverTicket(ticket);
+    expect(document.querySelectorAll('g[data-tmsv-overlay] circle')).toHaveLength(0);
+  });
+
+  it('still outlines blocks and greys the empty ones', () => {
+    buildOverviewWithSeats();
+    link = createMapLink({ log: () => {} });
+    show('NTHU3');
+    expect(dimmed().length).toBe(3);
+    link.highlight('NTHU3');
+    expect(outlined()).toEqual([dOf('NORTH UPPER 3')]);
+  });
+
+  it('shows a closed section\'s tooltip, as ever', () => {
+    buildOverviewWithSeats();
+    link = createMapLink({ log: () => {} });
+    show('NTHU3');
+    const seen = [];
+    block('NORTH UPPER 3').addEventListener('mouseover', () => seen.push('over'));
+    link.hover('NTHU3', false);
+    vi.advanceTimersByTime(200);
+    expect(seen).toEqual(['over']);
+  });
+});
+
+describe('knowing whether the map is zoomed in', () => {
+  it('a single map with one block and seats is zoomed in (the overview has not appeared yet)', () => {
+    const { mini } = buildZoomed();
+    mini.remove();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8']), ready: true });
+    link.hoverTicket(east);
+    expect(rings()).toHaveLength(2); // seats are shown: it is zoomed
+  });
+
+  it('the main map with all its blocks is not zoomed in however many seats it holds', () => {
+    const { main, mini } = buildZoomed();
+    mini.remove();
+    main.querySelector('g.polygons').innerHTML = o2.blocks.map((b, i) => `<path data-component="svg__section" data-section-id="${b.id}" data-section-name="${b.name}" data-active="${b.active}" d="M${i} 0L${i} 10z"></path>`).join('');
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8']), ready: true });
+    link.hoverTicket(east);
+    expect(rings()).toEqual([]);
+  });
+});
+
 describe('opening a section when the map is zoomed in already', () => {
   const clicks = (id) => { const got = []; document.getElementById(id).addEventListener('click', (e) => got.push(e.tmsv === true)); return got; };
 

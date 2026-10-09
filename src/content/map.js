@@ -105,18 +105,33 @@ export function createMapLink(options) {
     return el ? binding.blocks.findIndex(function (b) { return b.el === el; }) : -1;
   }
 
-  /** Is this map showing seats (zoomed in), rather than blocks? */
+  /** Are seats drawn in this map? (They can be, zoomed or not: the overview of the venue keeps them too.) */
   function hasSeats(binding) {
     return binding.svg.querySelector('g.seats > *') !== null;
-  }
-
-  function isZoomed() {
-    return bindings.some(hasSeats);
   }
 
   function area(binding) {
     const box = binding.svg.getBoundingClientRect();
     return box.width * box.height;
+  }
+
+  /**
+   * Is the map zoomed in? Zoomed in, the main map keeps just the one block and a small overview with all the blocks appears
+   * beside it: so the biggest map is no longer the one with the most blocks. (Seats being drawn says nothing: the map keeps
+   * them in the overview too, which is how this was once got wrong, and the map never opened.) With no overview to
+   * compare, a single map with one block and seats is taken to be zoomed in.
+   */
+  function isZoomed() {
+    if (bindings.length === 0) return false;
+    const biggest = bindings.reduce(function (best, b) { return area(b) > area(best) ? b : best; });
+    const fullest = bindings.reduce(function (best, b) { return b.blocks.length > best.blocks.length ? b : best; });
+    if (bindings.length === 1) return biggest.blocks.length <= 1 && hasSeats(biggest);
+    return biggest !== fullest && biggest.blocks.length < fullest.blocks.length;
+  }
+
+  /** Is this map showing the seats of a zoomed-in map (the seats are the point, not the blocks)? */
+  function showsSeats(binding) {
+    return hasSeats(binding) && isZoomed() && binding === bindings.reduce(function (best, b) { return area(b) > area(best) ? b : best; });
   }
 
   // --- drawing -------------------------------------------------------------------
@@ -151,7 +166,7 @@ export function createMapLink(options) {
   }
 
   function draw(binding) {
-    const zoomed = hasSeats(binding);
+    const zoomed = showsSeats(binding);
     // Over the seats of a zoomed map the block outlines are not the point: the seats are.
     const dim = enabled && ready && !zoomed ? blocksToDim(current(binding), binding.links, visible) : [];
     const outline = enabled && !zoomed && highlighted !== null ? binding.links.sectionToBlocks.get(highlighted) || [] : [];
