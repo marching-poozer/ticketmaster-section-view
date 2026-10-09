@@ -1135,14 +1135,29 @@ describe('createView', () => {
     });
   });
 
+  it('says how the tickets are being loaded on the status chip: (API) or (Scroll)', () => {
+    const { view, q } = make();
+    view.renderStatus({ loaded: 311, total: 311, isComplete: true }, 'api');
+    expect(q('.status').textContent).toBe('✓ All 311 Loaded (API)');
+    view.renderStatus({ loaded: 311, total: 311, isComplete: true }, 'scroll');
+    expect(q('.status').textContent).toBe('✓ All 311 Loaded (Scroll)');
+    view.renderStatus({ loaded: 120, total: 311, isComplete: false }, 'api');
+    expect(q('.status').textContent).toBe('⏳ Loading 120/311 (API)');
+    expect(q('.status').title).toBe('Reading Ticketmaster\'s ticket list directly');
+    view.renderStatus({ loaded: 120, total: 311, isComplete: false }, 'scroll');
+    expect(q('.status').textContent).toBe('⏳ Loading 120/311 (Scroll)');
+    view.renderStatus({ loaded: 3, total: 0, isComplete: false }, 'api');
+    expect(q('.status').textContent).toBe('⏳ Loading 3 (API)');
+  });
+
   it('renders load status, counter and quantity', () => {
     const { view, q } = make();
 
     view.renderStatus({ loaded: 3, total: 10, isComplete: false });
-    expect(q('.status').textContent).toBe('⏳ Loading (3/10)');
+    expect(q('.status').textContent).toBe('⏳ Loading 3/10');
     expect(q('.status').dataset.state).toBe('loading');
     view.renderStatus({ loaded: 3, total: 0, isComplete: false });
-    expect(q('.status').textContent).toBe('⏳ Loading (3)');
+    expect(q('.status').textContent).toBe('⏳ Loading 3');
     view.renderStatus({ loaded: 10, total: 10, isComplete: true });
     expect(q('.status').textContent).toBe('✓ All 10 Loaded');
     expect(q('.status').dataset.state).toBe('done');

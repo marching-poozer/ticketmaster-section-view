@@ -48,7 +48,7 @@ describe('showing the page\'s tickets', () => {
     app.start();
 
     expect(sectionNames()).toEqual(['Section PIT', 'Section 101', 'Section 102']);
-    expect(q('.status').textContent).toBe('✓ All 4 Loaded');
+    expect(q('.status').textContent).toBe('✓ All 4 Loaded (Scroll)'); // the app here reads the cards
     expect(q('.counter').textContent).toBe('Total Loaded: 4 options (1 per offer)');
   });
 
@@ -757,7 +757,32 @@ describe('tickets read from the list API', () => {
     expect(qa('.ticket-seat-count')[0].textContent).toBe('(2 seats)');
     expect(qa('.ticket-badge-line .badge')[0].textContent).toBe('💎 Top 10% (0.48)'); // all the same score, so all in the best share
     expect(q('.status').title).toContain('Read directly');
-    expect(q('.status').textContent).toBe('✓ All 3 Loaded');
+    expect(q('.status').textContent).toBe('✓ All 3 Loaded (API)');
+  });
+
+  it('says (API) on the chip while the API is still being read and the page\'s own cards are what is shown', () => {
+    addLoadedLabel(1, 84);
+    addCards({ section: 'BLOCKE', row: 23, price: 94.8 });
+    const state = { phase: 'loading', signature: 's', qty: 1, loaded: 20, total: 84, tickets: [], picks: [], partial: [], currency: '', error: null };
+    const apiSource = { start: vi.fn(), stop: vi.fn(), reload: vi.fn(), state: () => state };
+    app = createApp({ settings: normalizeSettings({ loadMode: 'api' }), version: '1.2.3', readerDeps: { apiSource } });
+    document.body.append(app.root);
+    app.start();
+    expect(q('.status').dataset.state).toBe('loading');
+    expect(q('.status').textContent).toBe('⏳ Loading 20/84 (API)');
+  });
+
+  it('says (Scroll) once it has fallen back to scrolling, and why on hover', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    addLoadedLabel(1, 1);
+    addCards({ section: 'BLOCKE', row: 23, price: 94.8 });
+    const state = { phase: 'failed', signature: 's', qty: 1, loaded: 0, total: 0, tickets: [], picks: [], partial: [], currency: '', error: 'HTTP 403' };
+    const apiSource = { start: vi.fn(), stop: vi.fn(), reload: vi.fn(), state: () => state };
+    app = createApp({ settings: normalizeSettings({ loadMode: 'api' }), version: '1.2.3', readerDeps: { apiSource } });
+    document.body.append(app.root);
+    app.start();
+    expect(q('.status').textContent).toBe('✓ All 1 Loaded (Scroll)');
+    expect(q('.status').title).toContain('reading it failed: HTTP 403');
   });
 
   it('gets a filter pill per attribute, before the user\'s own badges, and filters on it', async () => {

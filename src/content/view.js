@@ -548,16 +548,21 @@ export function createView(handlers, version) {
      * `source` says where the tickets came from: 'api' (Ticketmaster's list, read directly) or 'scroll' (the
      * page's list, scrolled); `fallback` is why it isn't 'api' when it was meant to be.
      */
-    renderStatus(loadStatus, source, fallback) {
-      status.title = source === 'api'
-        ? 'Read directly from Ticketmaster\'s ticket list'
-        : 'Loaded by scrolling Ticketmaster\'s ticket list' + (fallback ? ' (not read directly: ' + fallback + ')' : '');
+    /**
+     * `how` is how the tickets are being loaded: 'api' (read from Ticketmaster's list request) or 'scroll' (the page's
+     * list scrolled). It is on the chip, "✓ All 311 Loaded (API)", so it is always clear which. `fallback` is why it is
+     * scrolling when the API was meant to be used.
+     */
+    renderStatus(loadStatus, how, fallback) {
+      const mode = how === 'api' ? ' (API)' : how === 'scroll' ? ' (Scroll)' : '';
+      if (how === 'api') status.title = loadStatus.isComplete ? 'Read directly from Ticketmaster\'s ticket list' : 'Reading Ticketmaster\'s ticket list directly';
+      else status.title = 'Loaded by scrolling Ticketmaster\'s ticket list' + (fallback ? ' (not read directly: ' + fallback + ')' : '');
       if (!loadStatus.isComplete) {
         status.dataset.state = 'loading';
-        status.textContent = '⏳ Loading (' + loadStatus.loaded + (loadStatus.total ? '/' + loadStatus.total : '') + ')';
+        status.textContent = '⏳ Loading ' + loadStatus.loaded + (loadStatus.total ? '/' + loadStatus.total : '') + mode;
       } else {
         status.dataset.state = 'done';
-        status.textContent = '✓ All ' + loadStatus.total + ' Loaded';
+        status.textContent = '✓ All ' + loadStatus.total + ' Loaded' + mode;
       }
     },
 

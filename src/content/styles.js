@@ -40,11 +40,11 @@ export const VIEW_CSS = `
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
   font-size: ${uh(14)};
 }
-.title-row { display: flex; justify-content: space-between; align-items: center; gap: ${uh(8)}; }
-.title { display: flex; align-items: center; gap: ${uh(6)}; }
-.title-text { font-size: ${uh(15)}; font-weight: 700; letter-spacing: -0.2px; }
+.title-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: ${uh(4)} ${uh(8)}; }
+.title { display: flex; align-items: center; gap: ${uh(6)}; flex: none; }
+.title-text { font-size: ${uh(15)}; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; }
 .version { background: rgba(255, 255, 255, 0.25); padding: ${uh(1)} ${uh(6)}; border-radius: ${uh(8)}; font-size: ${uh(10)}; font-weight: 700; }
-.title-actions { display: flex; align-items: center; gap: ${uh(6)}; }
+.title-actions { display: flex; align-items: center; gap: ${uh(6)}; margin-left: auto; }
 .icon-btn {
   background: transparent; color: #ffffff; border: none; border-radius: ${uh(4)};
   font-size: ${uh(16)}; line-height: 1; padding: ${uh(3)} ${uh(5)}; cursor: pointer; opacity: 0.85;

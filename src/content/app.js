@@ -228,7 +228,8 @@ export function createApp({ settings, version, readerDeps }) {
     });
     syncBadges();
     view.setSampleTexts(snapshot.tickets.map(function (t) { return [t.text, t.title]; }));
-    view.renderStatus(snapshot.status, snapshot.source, snapshot.fallback);
+    // By how it is being loaded, not where the tickets on show came from: while the API is read the page's cards are shown.
+    view.renderStatus(snapshot.status, snapshot.viaApi ? 'api' : 'scroll', snapshot.fallback);
     view.renderQuantity(snapshot.qty);
     view.renderCounter(snapshot.tickets.length, snapshot.qty);
 
