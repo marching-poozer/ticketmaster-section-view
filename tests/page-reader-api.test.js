@@ -74,6 +74,87 @@ describe('while the API is being read', () => {
     expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
+  describe('part-way through a long list', () => {
+    it('shows the tickets read so far, not as complete, once they agree with the cards', async () => {
+      vi.useFakeTimers();
+      pageCards();
+      const api = fakeApi({ phase: 'loading', loaded: 5, total: 84, partial: matchingPicks() });
+      const { reader, last } = setup(api);
+      reader.start();
+      await settle(2000);
+
+      expect(last().source).toBe('api');
+      expect(last().viaApi).toBe(true);
+      expect(last().tickets).toHaveLength(5);
+      expect(last().tickets.map((t) => t.section)).toContain('BLOCKB'); // not on the page yet: only the API has it
+      expect(last().status).toEqual({ loaded: 5, total: 84, isComplete: false });
+      expect(window.scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('grows as more of the list is read', async () => {
+      vi.useFakeTimers();
+      pageCards();
+      const api = fakeApi({ phase: 'loading', loaded: 3, total: 84, partial: matchingPicks().slice(0, 3) });
+      const { reader, last } = setup(api);
+      reader.start();
+      await settle(2000);
+      expect(last().tickets).toHaveLength(3);
+      api.set({ loaded: 5, partial: matchingPicks() });
+      await poke();
+      expect(last().tickets).toHaveLength(5);
+      expect(last().status.isComplete).toBe(false);
+    });
+
+    it('keeps showing the cards while what has been read disagrees with them, and does not give up on that', async () => {
+      vi.useFakeTimers();
+      pageCards();
+      const wrong = matchingPicks().map((p) => ({ ...p, originalPrice: p.originalPrice + 1 }));
+      const api = fakeApi({ phase: 'loading', loaded: 5, total: 84, partial: wrong });
+      const { reader, last } = setup(api);
+      reader.start();
+      await settle(10000);
+      expect(last().source).toBe('scroll');
+      expect(last().tickets).toHaveLength(3);
+      expect(last().fallback).toBe(null);
+    });
+
+    it('shows nothing from a list for a quantity the page has left', async () => {
+      vi.useFakeTimers();
+      pageCards();
+      const api = fakeApi({ phase: 'loading', qty: 5, loaded: 5, total: 84, partial: matchingPicks() });
+      const { reader, last } = setup(api);
+      reader.start();
+      await settle(2000);
+      expect(last().source).toBe('scroll');
+      expect(last().tickets).toHaveLength(3);
+    });
+
+    it('waits for the cards before showing unchecked tickets', async () => {
+      vi.useFakeTimers();
+      const api = fakeApi({ phase: 'loading', loaded: 5, total: 84, partial: matchingPicks() });
+      const { reader, last } = setup(api);
+      reader.start();
+      await settle(500);
+      expect(last().tickets).toHaveLength(0);
+    });
+
+    it('selects the right one of identical tickets while the rest is still loading', async () => {
+      vi.useFakeTimers();
+      const cards = addCards({ section: 'A', row: 5, price: 50 }, { section: 'A', row: 5, price: 50 });
+      addLoadedLabel(2, 84);
+      const twins = [pick('A', 5, 50, { n: 1 }), pick('A', 5, 50, { n: 2 })];
+      const api = fakeApi({ phase: 'loading', loaded: 2, total: 84, partial: twins });
+      const { reader, last } = setup(api);
+      const clicks = [];
+      cards.forEach((c, i) => c.addEventListener('click', () => clicks.push(i)));
+      reader.start();
+      await settle(2000);
+      expect(last().tickets).toHaveLength(2);
+      await reader.clickTicket(last().tickets[1]);
+      expect(clicks).toEqual([1]);
+    });
+  });
+
   it('does not call the page complete just because it has not seen the request yet', async () => {
     vi.useFakeTimers();
     addLoadedLabel(3, 3);

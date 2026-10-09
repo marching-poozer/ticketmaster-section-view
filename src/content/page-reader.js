@@ -45,6 +45,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   let startedAt = 0;
   let timers = [];
   let verified = null; // { signature, currency, tickets } the API's tickets once they agreed with the cards
+  let partialChecked = null; // signature of a list whose first pages (read so far) agreed with the cards
+  let apiTickets = []; // the API's tickets as last shown (some of the list while it loads, then all): selecting counts identical ones in this order
   let mismatchSince = 0;
   let loadHooks = null; // { before(), after() }: the host makes the page's list loadable around a scroll-to-load
   let findingCard = false;
@@ -60,6 +62,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     console.warn(LOG_PREFIX + 'Not using the ticket list API (' + reason + '); scrolling the list instead.');
     api.stop();
     verified = null;
+    partialChecked = null;
+    apiTickets = [];
     if (running) startAutoScroll();
   }
 
@@ -116,6 +120,24 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   }
 
   /**
+   * The tickets read so far while the API is still paging through a long list, so there is something to
+   * browse straight away: shown once they agree with the cards on the page (the same check as for the whole
+   * list, but a disagreement here just means "keep showing the cards"; the whole list's check decides
+   * whether to give up). Null when there is nothing to show yet.
+   */
+  function partialView(a, domTickets, qty) {
+    if (!a.partial || a.partial.length === 0 || domTickets.length === 0) return null;
+    if (a.qty !== null && a.qty !== qty) return null;
+    const domCurrency = (domTickets.find(function (t) { return t.currency; }) || {}).currency || '';
+    const tickets = picksToTickets({ picks: a.partial }, { currency: domCurrency || currencyOf({ currency: a.currency }) });
+    if (partialChecked !== a.signature) {
+      if (!crossCheck(domTickets, tickets).ok) return null;
+      partialChecked = a.signature;
+    }
+    return tickets;
+  }
+
+  /**
    * What the list API says, if it can be trusted yet: { tickets, status }. Null while it is still
    * being read, or the page is catching up with it (the cards are shown meanwhile), or after giving up.
    */
@@ -129,7 +151,15 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
       if (domTickets.length > 0 && Date.now() - startedAt > NO_REQUEST_GRACE_MS) giveUp('the page was not seen asking for its list');
       return null;
     }
-    if (a.phase === 'loading') return { loading: { loaded: a.loaded, total: a.total || domStatus.total } };
+    if (a.phase === 'loading') {
+      const total = a.total || domStatus.total;
+      const partial = partialView(a, domTickets, qty);
+      if (partial) {
+        apiTickets = partial;
+        return { tickets: partial, status: { loaded: partial.length, total, isComplete: false } };
+      }
+      return { loading: { loaded: a.loaded, total } };
+    }
     if (a.qty !== null && a.qty !== qty) return null; // the page changed the quantity; its new list is on its way
 
     const domCurrency = (domTickets.find(function (t) { return t.currency; }) || {}).currency || '';
@@ -151,6 +181,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
       mismatchSince = 0;
       verified = { signature: a.signature, currency, tickets };
     }
+    apiTickets = verified.tickets;
     return { tickets: verified.tickets, status: { loaded: verified.tickets.length, total: a.total, isComplete: true } };
   }
 
@@ -238,8 +269,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     if (ticket.source !== 'api') return null;
 
     const key = ticketKey(ticket);
-    const list = verified ? verified.tickets : [];
-    const earlier = list.filter(function (t) { return t.index < ticket.index && ticketKey(t) === key; }).length;
+    const earlier = apiTickets.filter(function (t) { return t.index < ticket.index && ticketKey(t) === key; }).length;
     const matching = cards.filter(function (c) { return ticketKey(parseTicketCard(c)) === key; });
     return matching[earlier] || null;
   }
@@ -323,6 +353,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   function beginLoading() {
     gaveUp = null;
     verified = null;
+    partialChecked = null;
+    apiTickets = [];
     mismatchSince = 0;
     startedAt = Date.now();
     if (loadMode === 'api') {
@@ -354,6 +386,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     lastSent = null;
     lastQty = null;
     verified = null;
+    partialChecked = null;
+    apiTickets = [];
   }
 
   /** 'api' (read the list API, the default) or 'scroll' (scroll Ticketmaster's list until it has loaded everything). */

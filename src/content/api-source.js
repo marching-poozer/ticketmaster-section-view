@@ -3,6 +3,12 @@
 // page by page, so the filters (quantity, ticket types, primary / resale) are exactly
 // the ones on screen, and starts again whenever the page changes them.
 //
+// It asks the way a person scrolling would: one page at a time, a moment apart (the old
+// scroll loop ticked every 600ms and Ticketmaster never minded). A burst of parallel
+// requests got an event with ~300 tickets refused (HTTP 403). If Ticketmaster still
+// pushes back part-way, it waits and tries that page again, slower; and if it says no for
+// good, the API is left alone for a while (lib/api-pause.js) and the page reader scrolls.
+//
 // This only fetches and converts. Whether to trust the result is the page reader's call
 // (it checks the tickets against the cards on the page), and so is what to do when this
 // fails: carry on by scrolling, as before.
@@ -11,14 +17,30 @@ import { LOG_PREFIX } from '../lib/constants.js';
 import { listQuantity, listSignature, pageUrl, picksToTickets } from '../lib/quickpicks.js';
 import { capture as defaultCapture } from './capture.js';
 
-// The page itself asks for one page at a time; a burst of parallel requests is what a bot defence notices.
-const CONCURRENCY = 2;
+const CONCURRENCY = 1; // the page itself asks for one page at a time
+const GAP_MS = 650; // between two requests: about the old scroll loop's pace, with a little jitter so it isn't a metronome
+const GAP_JITTER_MS = 350;
+const RETRY_DELAYS_MS = [400, 1500]; // a page that failed (not refused): the first request can race the page's own
+const REFUSAL_DELAYS_MS = [4000, 12000, 30000]; // a page refused part-way: back off, then try that page again
+const MAX_SLOWDOWN = 4; // each refusal that later clears doubles the gap, up to 4x
+const MAX_RETRY_AFTER_MS = 60 * 1000;
 
 // The response headers worth showing when a request is refused (never cookies, which a page can't read anyway).
 const DETAIL_HEADER = /^(content-type|server|retry-after|www-authenticate|akamai-[a-z0-9-]+|x-[a-z0-9-]*(error|reference|request|akamai|block)[a-z0-9-]*)$/i;
 
-function sleep(ms) {
-  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+/** Wait `ms`, or until `signal` aborts (the caller checks it). */
+function sleep(ms, signal) {
+  return new Promise(function (resolve) {
+    if (signal && signal.aborted) return resolve();
+    let timer = null;
+    const done = function () {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', done);
+      resolve();
+    };
+    timer = setTimeout(done, ms);
+    if (signal) signal.addEventListener('abort', done, { once: true });
+  });
 }
 
 /** What a refused request said, for the console: { statusText, headers: ['server: AkamaiGHost'], body: first 300 characters as text }. */
@@ -34,6 +56,16 @@ async function describeResponse(response) {
     body = String(await response.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
   } catch (err) { /* nothing to show */ }
   return { statusText: response.statusText || '', headers, body };
+}
+
+/** How long a `Retry-After: <seconds>` header asks us to wait, in ms (at most a minute), or undefined. */
+function retryAfterOf(response) {
+  try {
+    const seconds = Number(response.headers.get('retry-after'));
+    return seconds > 0 ? Math.min(seconds * 1000, MAX_RETRY_AFTER_MS) : undefined;
+  } catch (err) {
+    return undefined;
+  }
 }
 
 /** The pause after a refusal is remembered in storage, so reloading the page doesn't ask again at once. */
@@ -59,13 +91,15 @@ function storagePause() {
 
 /**
  * GET a list page as JSON, same-origin with the page's cookies. Throws on anything but a good answer;
- * an error status is an Error with `status` and `detail` (what the response said: see describeResponse).
+ * an error status is an Error with `status`, `detail` (what the response said: see describeResponse)
+ * and, if the response said how long to wait, `retryAfterMs`.
  */
 export async function fetchListPage(url, signal) {
   const response = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal });
   if (!response.ok) {
     const err = new Error('HTTP ' + response.status);
     err.status = response.status;
+    err.retryAfterMs = retryAfterOf(response);
     err.detail = await describeResponse(response);
     throw err;
   }
@@ -77,21 +111,73 @@ export async function fetchListPage(url, signal) {
 }
 
 /**
- * Every pick of the list the request is for: the first page, then the rest in parallel
- * (a few at a time), then checked: as many picks as `total` says, none twice.
- * `fetchPage(url, signal)` -> { total, picks } (fetchListPage; faked in tests).
+ * Every pick of the list the request is for: the first page, then the rest, one request at a time with a
+ * gap between them (`concurrency` more at once only if asked), then checked: as many picks as `total`
+ * says, none twice. `fetchPage(url, signal)` -> { total, picks } (fetchListPage; faked in tests).
+ *
+ * A page that fails is tried again (`retryDelaysMs`); one that is *refused* (HTTP 401 / 403 / 429) after
+ * the first page is waited on (`refusalDelaysMs`, or the response's Retry-After) and tried again, with
+ * every gap after that longer. The first page being refused isn't a rate limit, so that fails at once.
+ * `onProgress({ loaded, total, picks })` has the picks read so far, in order. `onWait(message)` is told
+ * when it is backing off. `gapMs()` is the gap before a request (0 in tests).
  * Resolves to { picks, total, currency } where currency is what the response says ('' if it doesn't).
  */
-export async function fetchAllPicks(url, { fetchPage = fetchListPage, signal, onProgress, concurrency = CONCURRENCY } = {}) {
+export async function fetchAllPicks(url, options) {
+  const opts = options || {};
+  const fetchPage = opts.fetchPage || fetchListPage;
+  const signal = opts.signal;
+  const onProgress = opts.onProgress;
+  const concurrency = opts.concurrency || CONCURRENCY;
+  const retryDelays = opts.retryDelaysMs || RETRY_DELAYS_MS;
+  const refusalDelays = opts.refusalDelaysMs || REFUSAL_DELAYS_MS;
+  const gapMs = opts.gapMs || function () { return GAP_MS + Math.random() * GAP_JITTER_MS; };
   const aborted = function () { if (signal && signal.aborted) throw new Error('aborted'); };
 
-  const first = await fetchPage(pageUrl(url, 0), signal);
+  let slowdown = 1;
+
+  /** One page, with its retries and its backing off. */
+  async function fetchOne(offset) {
+    let hiccups = 0;
+    let refusals = 0;
+    for (;;) {
+      aborted();
+      try {
+        return await fetchPage(pageUrl(url, offset), signal);
+      } catch (err) {
+        if (signal && signal.aborted) throw err;
+        if (isRefusal(err && err.status)) {
+          if (offset === 0 || refusals >= refusalDelays.length) throw err;
+          const wait = (err && err.retryAfterMs) || refusalDelays[refusals];
+          refusals++;
+          slowdown = Math.min(slowdown * 2, MAX_SLOWDOWN);
+          if (opts.onWait) opts.onWait('Ticketmaster refused a page of the list (HTTP ' + err.status + '); waiting ' + Math.round(wait / 1000) + 's, then trying that page again, more slowly.');
+          await sleep(wait, signal);
+        } else {
+          if (hiccups >= retryDelays.length) throw err;
+          await sleep(retryDelays[hiccups++], signal);
+        }
+      }
+    }
+  }
+
+  const first = await fetchOne(0);
   aborted();
   const total = first.total;
   const pageSize = first.picks.length;
   const pages = new Map([[0, first.picks]]);
-  const loaded = function () { let n = 0; pages.forEach(function (p) { n += p.length; }); return n; };
-  if (onProgress) onProgress({ loaded: loaded(), total });
+
+  /** The picks read so far with no gap in them: pages in order from the start. */
+  const contiguous = function () {
+    const picks = [];
+    for (let offset = 0; pages.has(offset); offset += pageSize) picks.push.apply(picks, pages.get(offset));
+    return picks;
+  };
+  const report = function () {
+    if (!onProgress) return;
+    const picks = contiguous();
+    onProgress({ loaded: picks.length, total, picks });
+  };
+  report();
 
   if (pageSize > 0 && total > pageSize) {
     const offsets = [];
@@ -103,11 +189,13 @@ export async function fetchAllPicks(url, { fetchPage = fetchListPage, signal, on
       while (next < offsets.length && !failure) {
         const offset = offsets[next++];
         try {
+          const gap = gapMs() * slowdown;
+          if (gap > 0) await sleep(gap, signal);
           aborted();
-          const page = await fetchPage(pageUrl(url, offset), signal);
+          const page = await fetchOne(offset);
           aborted();
           pages.set(offset, page.picks);
-          if (onProgress) onProgress({ loaded: loaded(), total });
+          report();
         } catch (err) {
           failure = failure || err;
           throw err;
@@ -138,41 +226,25 @@ export async function fetchAllPicks(url, { fetchPage = fetchListPage, signal, on
  *   phase:     'waiting' (no list request seen yet) | 'loading' | 'ready' | 'failed'
  *   signature: which list it is of (listSignature); qty: that list's quantity
  *   loaded / total: progress; error: why it 'failed'
+ *   partial:   the picks read so far while 'loading' (in order, from the start of the list)
  *   picks / currency: what the API sent, once 'ready'; tickets: those as tickets (picksToTickets)
- * `deps.capture`, `deps.fetchPage` and `deps.retryDelaysMs` are for tests.
+ * `deps.capture`, `deps.fetchPage`, `deps.pause`, `deps.retryDelaysMs`, `deps.refusalDelaysMs` and `deps.gapMs` are for tests.
  */
 export function createApiSource({ onChange, deps } = {}) {
   const d = deps || {};
   const capture = d.capture || defaultCapture;
   const fetchPage = d.fetchPage || fetchListPage;
-  const retryDelays = d.retryDelaysMs || [400, 1500];
   const pause = d.pause || storagePause();
 
   let running = false;
   let unsubscribe = null;
   let controller = null;
-  const fresh = function () { return { phase: 'waiting', signature: null, qty: null, loaded: 0, total: 0, tickets: [], picks: [], currency: '', error: null }; };
+  const fresh = function () { return { phase: 'waiting', signature: null, qty: null, loaded: 0, total: 0, tickets: [], picks: [], partial: [], currency: '', error: null }; };
   let current = fresh();
 
   function set(next) {
     current = Object.assign({}, current, next);
     if (onChange) onChange();
-  }
-
-  /** Fetch with a couple of retries: the first request can race the page's own. Not after a refusal. */
-  async function fetchWithRetry(url, signal, onProgress) {
-    let lastError;
-    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      try {
-        return await fetchAllPicks(url, { fetchPage, signal, onProgress });
-      } catch (err) {
-        if (signal.aborted) throw err;
-        if (isRefusal(err && err.status)) throw err; // a "no" isn't a hiccup: asking again only makes it worse
-        lastError = err;
-        if (attempt < retryDelays.length) await sleep(retryDelays[attempt]);
-      }
-    }
-    throw lastError;
   }
 
   async function load(url, signature) {
@@ -191,12 +263,22 @@ export function createApiSource({ onChange, deps } = {}) {
     }
 
     try {
-      const result = await fetchWithRetry(url, mine.signal, function (p) {
-        if (!mine.signal.aborted) set({ loaded: p.loaded, total: p.total });
+      const result = await fetchAllPicks(url, {
+        fetchPage,
+        signal: mine.signal,
+        retryDelaysMs: d.retryDelaysMs,
+        refusalDelaysMs: d.refusalDelaysMs,
+        gapMs: d.gapMs,
+        onProgress: function (p) {
+          if (!mine.signal.aborted) set({ loaded: p.loaded, total: p.total, partial: p.picks });
+        },
+        onWait: function (message) {
+          if (!mine.signal.aborted) console.warn(LOG_PREFIX + message);
+        },
       });
       if (mine.signal.aborted) return;
       const tickets = picksToTickets({ picks: result.picks, currency: result.currency });
-      set({ phase: 'ready', loaded: tickets.length, total: result.total, tickets, picks: result.picks, currency: result.currency });
+      set({ phase: 'ready', loaded: tickets.length, total: result.total, tickets, picks: result.picks, partial: [], currency: result.currency });
     } catch (err) {
       if (mine.signal.aborted) return;
       let message = err && err.message ? err.message : String(err);
@@ -207,7 +289,7 @@ export function createApiSource({ onChange, deps } = {}) {
       }
       // What the refusal said, as text so it can be copied from the console.
       console.warn(LOG_PREFIX + 'Could not read the ticket list from the API: ' + message + (err && err.detail ? ' ' + JSON.stringify(err.detail) : ''));
-      set({ phase: 'failed', error: message });
+      set({ phase: 'failed', error: message, partial: [] });
     }
   }
 

@@ -18,10 +18,13 @@ function fakeApi(total, size, { currency } = {}) {
   return { fetchPage, requests, all };
 }
 
+/** fetchAllPicks as the tests want it: no gaps between requests, tiny retry delays. */
+const read = (url, options) => fetchAllPicks(url, { gapMs: () => 0, retryDelaysMs: [1, 1], refusalDelaysMs: [1, 1, 1], ...options });
+
 describe('fetchAllPicks', () => {
   it('reads the first page, then the rest of them, in order', async () => {
     const api = fakeApi(84, 20);
-    const result = await fetchAllPicks(URL1, { fetchPage: api.fetchPage });
+    const result = await read(URL1, { fetchPage: api.fetchPage });
     expect(result.total).toBe(84);
     expect(result.picks.map((p) => p.id)).toEqual(api.all.map((p) => p.id));
     expect(api.requests.map(offsetOf).sort((a, b) => a - b)).toEqual([0, 20, 40, 60, 80]);
@@ -29,7 +32,7 @@ describe('fetchAllPicks', () => {
 
   it('asks for the same list every time: same filters, only the offset changes', async () => {
     const api = fakeApi(60, 20);
-    await fetchAllPicks(URL1, { fetchPage: api.fetchPage });
+    await read(URL1, { fetchPage: api.fetchPage });
     api.requests.forEach((url) => {
       const u = new URL(url);
       expect(u.searchParams.get('qty')).toBe('2');
@@ -40,19 +43,19 @@ describe('fetchAllPicks', () => {
 
   it('starts from the first page whatever offset the page happened to ask for', async () => {
     const api = fakeApi(10, 20);
-    await fetchAllPicks(URL1, { fetchPage: api.fetchPage });
+    await read(URL1, { fetchPage: api.fetchPage });
     expect(api.requests.map(offsetOf)).toEqual([0]);
   });
 
   it('needs only one request when everything fits', async () => {
     const api = fakeApi(5, 20);
-    expect((await fetchAllPicks(URL1, { fetchPage: api.fetchPage })).picks).toHaveLength(5);
+    expect((await read(URL1, { fetchPage: api.fetchPage })).picks).toHaveLength(5);
     expect(api.requests).toHaveLength(1);
   });
 
   it('copes with an empty list', async () => {
     const api = fakeApi(0, 20);
-    expect(await fetchAllPicks(URL1, { fetchPage: api.fetchPage })).toMatchObject({ picks: [], total: 0 });
+    expect(await read(URL1, { fetchPage: api.fetchPage })).toMatchObject({ picks: [], total: 0 });
   });
 
   it('never has more than `concurrency` requests going at once', async () => {
@@ -66,7 +69,7 @@ describe('fetchAllPicks', () => {
       active--;
       return api.fetchPage(url);
     };
-    await fetchAllPicks(URL1, { fetchPage, concurrency: 3 });
+    await read(URL1, { fetchPage, concurrency: 3 });
     expect(peak).toBeGreaterThan(1);
     expect(peak).toBeLessThanOrEqual(3);
   });
@@ -74,10 +77,10 @@ describe('fetchAllPicks', () => {
   it('stops asking for more pages once one has failed', async () => {
     const api = fakeApi(400, 10);
     const fetchPage = vi.fn(async (url) => {
-      if (offsetOf(url) === 20) throw new Error('HTTP 403');
+      if (offsetOf(url) === 20) throw Object.assign(new Error('HTTP 500'), { status: 500 });
       return api.fetchPage(url);
     });
-    await expect(fetchAllPicks(URL1, { fetchPage, concurrency: 2 })).rejects.toThrow('HTTP 403');
+    await expect(read(URL1, { fetchPage, concurrency: 2, retryDelaysMs: [] })).rejects.toThrow('HTTP 500');
     await new Promise((r) => setTimeout(r, 10));
     expect(fetchPage.mock.calls.length).toBeLessThan(6); // not the 40 pages of the whole list
   });
@@ -85,33 +88,150 @@ describe('fetchAllPicks', () => {
   it('reports progress', async () => {
     const api = fakeApi(60, 20);
     const seen = [];
-    await fetchAllPicks(URL1, { fetchPage: api.fetchPage, onProgress: (p) => seen.push(p) });
-    expect(seen[0]).toEqual({ loaded: 20, total: 60 });
-    expect(seen[seen.length - 1]).toEqual({ loaded: 60, total: 60 });
+    await read(URL1, { fetchPage: api.fetchPage, onProgress: (p) => seen.push(p) });
+    expect(seen.map((p) => [p.loaded, p.total])).toEqual([[20, 60], [40, 60], [60, 60]]);
+    expect(seen[0].picks.map((p) => p.id)).toEqual(api.all.slice(0, 20).map((p) => p.id)); // the picks so far, in order
+    expect(seen[2].picks.map((p) => p.id)).toEqual(api.all.map((p) => p.id));
+  });
+
+  it('asks for one page at a time, a gap apart, in order (the way a person scrolling would)', async () => {
+    const api = fakeApi(100, 20);
+    const times = [];
+    let active = 0;
+    let peak = 0;
+    const fetchPage = async (url) => {
+      times.push([offsetOf(url), Date.now()]);
+      peak = Math.max(peak, ++active);
+      await new Promise((r) => setTimeout(r, 2));
+      active--;
+      return api.fetchPage(url);
+    };
+    await read(URL1, { fetchPage, gapMs: () => 40 });
+    expect(peak).toBe(1);
+    expect(times.map((t) => t[0])).toEqual([0, 20, 40, 60, 80]);
+    for (let i = 1; i < times.length; i++) expect(times[i][1] - times[i - 1][1]).toBeGreaterThanOrEqual(35);
+  });
+
+  it('does not make the first page wait', async () => {
+    const api = fakeApi(10, 20);
+    const start = Date.now();
+    await read(URL1, { fetchPage: api.fetchPage, gapMs: () => 500 });
+    expect(Date.now() - start).toBeLessThan(200);
+  });
+
+  describe('when Ticketmaster pushes back part-way', () => {
+    const refusal = (status = 403, extra = {}) => Object.assign(new Error('HTTP ' + status), { status }, extra);
+
+    it('waits, tries that page again, and carries on', async () => {
+      const api = fakeApi(80, 20);
+      let refused = 0;
+      const fetchPage = vi.fn(async (url) => {
+        if (offsetOf(url) === 40 && refused++ === 0) throw refusal();
+        return api.fetchPage(url);
+      });
+      const onWait = vi.fn();
+      const result = await read(URL1, { fetchPage, onWait });
+      expect(result.picks).toHaveLength(80);
+      expect(fetchPage.mock.calls.filter(([u]) => offsetOf(u) === 40)).toHaveLength(2);
+      expect(onWait).toHaveBeenCalledTimes(1);
+      expect(onWait.mock.calls[0][0]).toMatch(/refused a page.*HTTP 403.*more slowly/);
+    });
+
+    it('then asks more slowly: the gap doubles after each refusal that cleared', async () => {
+      const api = fakeApi(100, 20);
+      let refused = 0;
+      const times = {};
+      const fetchPage = async (url) => {
+        const offset = offsetOf(url);
+        times[offset] = [...(times[offset] || []), Date.now()];
+        if (offset === 20 && refused++ === 0) throw refusal();
+        return api.fetchPage(url);
+      };
+      await read(URL1, { fetchPage, gapMs: () => 30 });
+      expect(times[40][0] - times[20][1]).toBeGreaterThanOrEqual(55); // 2 x 30, not 30
+    });
+
+    it('keeps the slowdown to 4x however many times it happens', async () => {
+      const api = fakeApi(140, 20);
+      const refusedOnce = new Set();
+      const times = {};
+      const fetchPage = async (url) => {
+        const offset = offsetOf(url);
+        times[offset] = Date.now();
+        if ([20, 40, 60].includes(offset) && !refusedOnce.has(offset)) { refusedOnce.add(offset); throw refusal(); }
+        return api.fetchPage(url);
+      };
+      await read(URL1, { fetchPage, gapMs: () => 20 });
+      expect(times[120] - times[100]).toBeLessThan(20 * 4 + 40);
+    });
+
+    it('gives up when the page stays refused, with the refusal as the error', async () => {
+      const api = fakeApi(60, 20);
+      const fetchPage = vi.fn(async (url) => {
+        if (offsetOf(url) === 20) throw refusal(429);
+        return api.fetchPage(url);
+      });
+      const err = await read(URL1, { fetchPage }).catch((e) => e);
+      expect(err.status).toBe(429);
+      expect(fetchPage.mock.calls.filter(([u]) => offsetOf(u) === 20)).toHaveLength(4); // once, then after each of 3 waits
+    });
+
+    it('does the Retry-After the response asked for rather than its own wait', async () => {
+      const api = fakeApi(40, 20);
+      let refused = 0;
+      const stamps = [];
+      const fetchPage = async (url) => {
+        if (offsetOf(url) === 20) {
+          stamps.push(Date.now());
+          if (refused++ === 0) throw refusal(429, { retryAfterMs: 30 });
+        }
+        return api.fetchPage(url);
+      };
+      await read(URL1, { fetchPage, refusalDelaysMs: [2000] });
+      expect(stamps[1] - stamps[0]).toBeGreaterThanOrEqual(25);
+      expect(stamps[1] - stamps[0]).toBeLessThan(500);
+    });
+
+    it('does not argue with a refusal of the first page: that is not a rate limit', async () => {
+      const fetchPage = vi.fn(async () => { throw refusal(); });
+      await expect(read(URL1, { fetchPage })).rejects.toThrow('HTTP 403');
+      expect(fetchPage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('stops waiting between pages as soon as it is told to stop', async () => {
+    const api = fakeApi(100, 20);
+    const controller = new AbortController();
+    const start = Date.now();
+    const run = read(URL1, { fetchPage: api.fetchPage, gapMs: () => 5000, signal: controller.signal });
+    setTimeout(() => controller.abort(), 20);
+    await expect(run).rejects.toThrow('aborted');
+    expect(Date.now() - start).toBeLessThan(500);
+    expect(api.requests).toHaveLength(1);
   });
 
   it('refuses a list that does not add up to its total', async () => {
     const api = fakeApi(84, 20);
     const short = async (url) => { const page = await api.fetchPage(url); return offsetOf(url) === 40 ? { ...page, picks: page.picks.slice(0, 5) } : page; };
-    await expect(fetchAllPicks(URL1, { fetchPage: short })).rejects.toThrow(/got 69 of 84/);
+    await expect(read(URL1, { fetchPage: short })).rejects.toThrow(/got 69 of 84/);
   });
 
   it('drops a ticket that comes twice (a list that moved while it was read)', async () => {
     const api = fakeApi(40, 20);
     const dup = async (url) => { const page = await api.fetchPage(url); return offsetOf(url) === 20 ? { ...page, picks: [page.picks[0], page.picks[0], ...page.picks.slice(2)] } : page; };
-    await expect(fetchAllPicks(URL1, { fetchPage: dup })).rejects.toThrow(/got 39 of 40/);
+    await expect(read(URL1, { fetchPage: dup })).rejects.toThrow(/got 39 of 40/);
   });
 
   it('stops when told to', async () => {
     const api = fakeApi(200, 10);
     const controller = new AbortController();
     const fetchPage = async (url) => { const r = await api.fetchPage(url); controller.abort(); return r; };
-    await expect(fetchAllPicks(URL1, { fetchPage, signal: controller.signal })).rejects.toThrow('aborted');
+    await expect(read(URL1, { fetchPage, signal: controller.signal })).rejects.toThrow('aborted');
   });
 
   it('passes on the currency the response names', async () => {
     const api = fakeApi(3, 20, { currency: 'EUR' });
-    expect((await fetchAllPicks(URL1, { fetchPage: api.fetchPage })).currency).toBe('EUR');
+    expect((await read(URL1, { fetchPage: api.fetchPage })).currency).toBe('EUR');
   });
 });
 
@@ -141,6 +261,18 @@ describe('fetchListPage', () => {
     expect(err.detail.statusText).toBe('Forbidden');
     expect(err.detail.body).toBe('Access Denied Reference #18.abc.123');
     expect(err.detail.headers).toEqual(['server: AkamaiGHost', 'content-type: text/html', 'x-reference-error: 18.abc']);
+  });
+
+  it('passes on how long the response asked us to wait (at most a minute)', async () => {
+    const reply = (value) => vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 429, headers: new Map(value === undefined ? [] : [['retry-after', value]]), text: async () => '' });
+    reply('7');
+    expect((await fetchListPage('https://x/api').catch((e) => e)).retryAfterMs).toBe(7000);
+    reply('900');
+    expect((await fetchListPage('https://x/api').catch((e) => e)).retryAfterMs).toBe(60000);
+    reply('soon');
+    expect((await fetchListPage('https://x/api').catch((e) => e)).retryAfterMs).toBeUndefined();
+    reply(undefined);
+    expect((await fetchListPage('https://x/api').catch((e) => e)).retryAfterMs).toBeUndefined();
   });
 
   it('keeps only the start of a long body', async () => {
@@ -173,7 +305,7 @@ describe('createApiSource', () => {
     }
     const capture = createCapture({ Observer });
     const changes = vi.fn();
-    const source = createApiSource({ onChange: changes, deps: { capture, fetchPage: api.fetchPage, retryDelaysMs: [1, 1] } });
+    const source = createApiSource({ onChange: changes, deps: { capture, fetchPage: api.fetchPage, retryDelaysMs: [1, 1], refusalDelaysMs: [1, 1, 1], gapMs: () => 0 } });
     const see = (url) => observers[0].cb({ getEntries: () => [{ name: url }] });
     const settled = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 5)); };
     return { api, capture, source, see, changes, settled, entries };
@@ -253,7 +385,7 @@ describe('createApiSource', () => {
     const gate = new Promise((r) => { release = r; });
     const seenQty = [];
     const fetchPage = async (url) => { seenQty.push(new URL(url).searchParams.get('qty')); if (new URL(url).searchParams.get('qty') === '2') await gate; return slow.fetchPage(url); };
-    const src = createApiSource({ deps: { capture, fetchPage, retryDelaysMs: [] } });
+    const src = createApiSource({ deps: { capture, fetchPage, retryDelaysMs: [], gapMs: () => 0 } });
     src.start();
     see(URL1);
     see(URL1.replace('qty=2', 'qty=3'));
@@ -268,7 +400,7 @@ describe('createApiSource', () => {
     let calls = 0;
     const fetchPage = async (url) => { if (++calls < 3) throw new Error('HTTP 503'); return api.fetchPage(url); };
     const capture = createCapture({ Observer: class { constructor(cb) { this.cb = cb; globalThis.__obs = this; } observe() {} disconnect() {} } });
-    const source = createApiSource({ deps: { capture, fetchPage, retryDelaysMs: [1, 1] } });
+    const source = createApiSource({ deps: { capture, fetchPage, retryDelaysMs: [1, 1], refusalDelaysMs: [1, 1, 1], gapMs: () => 0 } });
     source.start();
     globalThis.__obs.cb({ getEntries: () => [{ name: URL1 }] });
     for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 2));
@@ -282,7 +414,7 @@ describe('createApiSource', () => {
     const fetch = fetchPage || vi.fn(async () => { throw Object.assign(new Error('HTTP ' + status), { status, detail: { statusText: 'Forbidden', headers: ['server: AkamaiGHost'], body: 'Access Denied' } }); });
     let obs;
     const capture = createCapture({ Observer: class { constructor(cb) { this.cb = cb; obs = this; } observe() {} disconnect() {} } });
-    const source = createApiSource({ deps: Object.assign({ capture, fetchPage: fetch, retryDelaysMs: [1, 1] }, pause ? { pause } : {}) });
+    const source = createApiSource({ deps: Object.assign({ capture, fetchPage: fetch, retryDelaysMs: [1, 1], refusalDelaysMs: [1, 1, 1], gapMs: () => 0 }, pause ? { pause } : {}) });
     source.start();
     obs.cb({ getEntries: () => [{ name: URL1 }] });
     for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 2));
@@ -348,6 +480,41 @@ describe('createApiSource', () => {
     expect(pause.get).toHaveBeenCalled();
     expect(pause.set).toHaveBeenCalledTimes(1);
     expect(pause.set.mock.calls[0][0]).toBeGreaterThan(Date.now());
+  });
+
+  it('has the picks read so far while it is still loading, and none once it is done', async () => {
+    const api = fakeApi(45, 20);
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const fetchPage = vi.fn(async (url) => { if (offsetOf(url) === 20) await gate; return api.fetchPage(url); });
+    const capture2 = createCapture({ Observer: class { constructor(cb) { this.cb = cb; globalThis.__obs2 = this; } observe() {} disconnect() {} } });
+    const s2 = createApiSource({ deps: { capture: capture2, fetchPage, retryDelaysMs: [], refusalDelaysMs: [], gapMs: () => 0 } });
+    s2.start();
+    globalThis.__obs2.cb({ getEntries: () => [{ name: URL1 }] });
+    const settled = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 5)); };
+    await settled();
+    expect(s2.state()).toMatchObject({ phase: 'loading', loaded: 20, total: 45 });
+    expect(s2.state().partial.map((p) => p.id)).toEqual(api.all.slice(0, 20).map((p) => p.id));
+    release();
+    await settled();
+    expect(s2.state()).toMatchObject({ phase: 'ready', loaded: 45 });
+    expect(s2.state().partial).toEqual([]);
+    s2.stop();
+  });
+
+  it('pauses the API when a page stays refused part-way, after waiting for it', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const api = fakeApi(60, 20);
+    const fetchPage = vi.fn(async (url) => {
+      if (offsetOf(url) === 40) throw Object.assign(new Error('HTTP 403'), { status: 403 });
+      return api.fetchPage(url);
+    });
+    const { source } = await refused({ fetchPage });
+    expect(source.state()).toMatchObject({ phase: 'failed', partial: [] });
+    expect(source.state().error).toMatch(/^HTTP 403 \(not asking again until \d\d:\d\d\)$/);
+    expect(fetchPage.mock.calls.filter(([u]) => offsetOf(u) === 40)).toHaveLength(4); // once, and again after each wait
+    expect(peekStorage(API_PAUSE_KEY)).toBeGreaterThan(Date.now());
+    expect(console.warn.mock.calls.map((c) => c.join(' ')).filter((l) => /refused a page/.test(l))).toHaveLength(3);
   });
 
   it('does nothing when stopped, and can be started again', async () => {
