@@ -949,6 +949,131 @@ describe('createView', () => {
     });
   });
 
+  describe('a seat the mouse is on, on the venue\'s map', () => {
+    const ticket = (id, row) => ({ id, section: 'NTHU3', originalSection: 'NTHU3', row: Number(row), rowName: row, price: 50, currency: '€', isResale: false, type: 'standard', title: 'Row ' + row, badges: {}, seat: '1', seatFrom: '1', seatTo: '1' });
+    const group = (name, tickets) => ({ name, tickets, topTicket: tickets[0], rows: tickets.map((t) => ({ row: t.row, label: 'Row ' + t.rowName, tickets: [t], topTicket: t })) });
+    const mapped = () => [group('NTHU3', [ticket('t1', '1'), ticket('t2', '2')]), group('WESTU1', [{ ...ticket('t3', '3'), section: 'WESTU1', originalSection: 'WESTU1' }])];
+
+    it('marks each ticket with its id, for the map to name it by', () => {
+      const { view, qa } = make();
+      view.renderGroups(mapped(), 'price', () => {});
+      expect(qa('.ticket').map((t) => t.getAttribute('data-ticket'))).toEqual(['t1', 't2', 't3']);
+    });
+
+    it('has no such mark for a ticket without an id (read from the cards)', () => {
+      const { view, qa } = make();
+      const noId = ticket('x', '1');
+      delete noId.id;
+      view.renderGroups([group('NTHU3', [noId])], 'price', () => {});
+      expect(qa('.ticket')[0].hasAttribute('data-ticket')).toBe(false);
+    });
+
+    it('lights up its ticket in the list, when the section is open, and only that one', () => {
+      const { view, qa } = make();
+      view.renderGroups(mapped(), 'price', () => {});
+      view.openSection('NTHU3');
+      view.highlightTicket('t2');
+      expect(qa('.ticket.map-hover').map((t) => t.getAttribute('data-ticket'))).toEqual(['t2']);
+      view.highlightTicket('t1');
+      expect(qa('.ticket.map-hover').map((t) => t.getAttribute('data-ticket'))).toEqual(['t1']);
+      view.highlightTicket(null);
+      expect(qa('.ticket.map-hover')).toHaveLength(0);
+    });
+
+    it('lights up its section when that is closed (the ticket is not showing)', () => {
+      const { view, qa } = make();
+      view.renderGroups(mapped(), 'price', () => {});
+      view.highlightTicket('t3');
+      expect(qa('.ticket.map-hover')).toHaveLength(0);
+      expect(qa('.section.map-seat').map((s) => s.getAttribute('data-section'))).toEqual(['WESTU1']);
+      view.highlightTicket(null);
+      expect(qa('.section.map-seat')).toHaveLength(0);
+    });
+
+    it('keeps it lit when the list is drawn again', () => {
+      const { view, qa } = make();
+      view.renderGroups(mapped(), 'price', () => {});
+      view.openSection('NTHU3');
+      view.highlightTicket('t1');
+      view.renderGroups(mapped(), 'price', () => {});
+      expect(qa('.ticket.map-hover').map((t) => t.getAttribute('data-ticket'))).toEqual(['t1']);
+    });
+
+    it('brings it into view after a pause, once, scrolling only its scroller (a sweep across the seats must not make the list lurch)', () => {
+      vi.useFakeTimers();
+      const { view, qa } = make();
+      // the list inside a scroller that shows 500px of its 2000, with the tickets below what is showing
+      const scroller = document.createElement('div');
+      scroller.style.overflowY = 'auto';
+      document.body.append(scroller);
+      scroller.append(view.root);
+      Object.defineProperty(scroller, 'scrollHeight', { value: 2000, configurable: true });
+      Object.defineProperty(scroller, 'clientHeight', { value: 500, configurable: true });
+      scroller.getBoundingClientRect = () => ({ top: 0, bottom: 500, left: 0, right: 400, width: 400, height: 500 });
+      scroller.scrollTo = vi.fn();
+      view.renderGroups(mapped(), 'price', () => {});
+      view.openSection('NTHU3');
+      scroller.scrollTo.mockClear();
+      qa('.ticket').forEach((t) => { t.getBoundingClientRect = () => ({ top: 900, bottom: 980, left: 0, right: 400, width: 400, height: 80 }); });
+
+      view.highlightTicket('t1');
+      vi.advanceTimersByTime(100);
+      view.highlightTicket('t2'); // the mouse has moved on to another seat before the pause was over
+      vi.advanceTimersByTime(200);
+      expect(scroller.scrollTo).not.toHaveBeenCalled(); // 200ms since t2: not yet
+      vi.advanceTimersByTime(100);
+      expect(scroller.scrollTo).toHaveBeenCalledTimes(1); // once, for the one it is on
+      expect(scroller.scrollTo.mock.calls[0][0].top).toBeGreaterThan(0); // down to it
+    });
+
+    it('does not scroll at all when the mouse has left the seat before the pause is over', () => {
+      vi.useFakeTimers();
+      const { view, qa } = make();
+      const scroller = document.createElement('div');
+      scroller.style.overflowY = 'auto';
+      document.body.append(scroller);
+      scroller.append(view.root);
+      Object.defineProperty(scroller, 'scrollHeight', { value: 2000, configurable: true });
+      Object.defineProperty(scroller, 'clientHeight', { value: 500, configurable: true });
+      scroller.getBoundingClientRect = () => ({ top: 0, bottom: 500, left: 0, right: 400, width: 400, height: 500 });
+      scroller.scrollTo = vi.fn();
+      view.renderGroups(mapped(), 'price', () => {});
+      view.openSection('NTHU3');
+      scroller.scrollTo.mockClear();
+      qa('.ticket').forEach((t) => { t.getBoundingClientRect = () => ({ top: 900, bottom: 980, left: 0, right: 400, width: 400, height: 80 }); });
+      view.highlightTicket('t1');
+      vi.advanceTimersByTime(100);
+      view.highlightTicket(null);
+      vi.advanceTimersByTime(1000);
+      expect(scroller.scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('ignores a ticket that is not in the list (the filters leave it out)', () => {
+      const { view, qa } = make();
+      view.renderGroups(mapped(), 'price', () => {});
+      expect(() => view.highlightTicket('nope')).not.toThrow();
+      expect(qa('.ticket.map-hover, .section.map-seat')).toHaveLength(0);
+    });
+
+    it('opens the ticket\'s section when its seat is clicked, and says it did', () => {
+      const { view, qa } = make();
+      view.renderGroups(mapped(), 'price', () => {});
+      expect(qa('.section').every((s) => !s.open)).toBe(true);
+      expect(view.openTicket('t3')).toBe(true);
+      expect(qa('.section').map((s) => s.open)).toEqual([false, true]);
+      expect(qa('.ticket.map-hover').map((t) => t.getAttribute('data-ticket'))).toEqual(['t3']);
+      view.renderGroups(mapped(), 'price', () => {});
+      expect(qa('.section').map((s) => s.open)).toEqual([false, true]); // it stays open
+    });
+
+    it('says when there is no such ticket to open', () => {
+      const { view } = make();
+      view.renderGroups(mapped(), 'price', () => {});
+      expect(view.openTicket('nope')).toBe(false);
+      expect(view.openTicket(null)).toBe(false);
+    });
+  });
+
   describe('Auto zoom map, and the Show on map buttons', () => {
     const groupsFor = (...names) => names.map((name) => {
       const ticket = { section: name, originalSection: name, row: 1, rowName: '1', price: 50, currency: '€', isResale: false, type: 'standard', title: 'Row 1', badges: {}, seat: '1', seatFrom: '1', seatTo: '1' };

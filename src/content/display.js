@@ -37,6 +37,8 @@ export async function initDisplay() {
       onHover(name) { if (app) app.highlightSection(name); },
       onClick(name) { if (app) app.openSection(name); },
       onPresence(present) { if (app) app.setMapAvailable(present); },
+      onSeatHover(ticket) { if (app) app.highlightTicket(ticket); },
+      onSeatClick(ticket) { if (app) app.openTicket(ticket); },
     });
     map.setEnabled(settings.mapLink);
     map.setAutoZoom(settings.autoZoomMap);

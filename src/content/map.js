@@ -20,6 +20,8 @@
 //       open section:   sends it a click, so the map opens that section. If the map is zoomed already it is reset first
 //                       (Ticketmaster's own reset button is pressed), then the block clicked: it goes to the new place.
 //   - Hovering a ticket in our list (hoverTicket(ticket)) rings its seats on the zoomed map.
+//   - On a zoomed map, seats that are on sale but whose ticket our filters leave out are greyed too (a seat we know nothing
+//     about is left alone). Hovering a seat calls onSeatHover(its ticket | null); clicking one calls onSeatClick(its ticket).
 //
 // None of it is needed: with no map on the page (or one built differently) this does nothing.
 import { LOG_PREFIX } from '../lib/constants.js';
@@ -53,9 +55,22 @@ export function seatsOf(ticket) {
   return Array.from(new Set([from, to].filter(Boolean)));
 }
 
+/** 'section|row|seat': what names a seat the same way on the map and in a ticket (section code, row letter, seat number). */
+function seatKey(section, row, seat) {
+  return keyOf(section) + '|' + String(row == null ? '' : row).trim().toUpperCase() + '|' + String(seat == null ? '' : seat).trim();
+}
+
+/** The seat key of a seat circle on the zoomed map, from the block and row groups it sits in; null if it is in neither. */
+function keyOfSeatCircle(circle) {
+  const block = circle.closest('g[data-component="svg__block"]');
+  const row = circle.closest('g[data-row-name]');
+  return block && row ? seatKey(block.getAttribute('data-section-name'), row.getAttribute('data-row-name'), circle.getAttribute('data-seat-name')) : null;
+}
+
 /**
  * `options.onHover(name | null)`, `options.onClick(name)`: called with a section's name (as in our list).
  * `options.log(message)` hears what it works out (default: the console). `options.document` is for tests.
+ * `options.onSeatHover(ticket | null)`, `options.onSeatClick(ticket)`: the mouse is on a seat of the zoomed map, whose ticket is still in our list.
  * `options.onPresence(bool)` hears when the page gains or loses an interactive map.
  * Returns { update, summary, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
  */
@@ -74,6 +89,9 @@ export function createMapLink(options) {
   let sections = []; // [{ name, tickets }]: every section, whatever the filters leave
   let visible = new Set(); // the sections that still show tickets
   let ready = false; // the whole list has loaded (until then, "no tickets here" just means "not loaded yet")
+  let allSeats = new Set(); // 'section|row|seat' of every seat any of our tickets covers, whatever the filters
+  let shownSeats = new Map(); // ...and of those the filters leave: seat -> its ticket
+  let hoveredSeat = null; // the ticket whose seat the mouse is on
   let highlighted = null; // a section outlined on the map
   let hovered = null; // the section whose block the mouse is over
   let seatTarget = null; // { section, row, seats }: the ticket the mouse is on in our list
@@ -171,13 +189,26 @@ export function createMapLink(options) {
     return found;
   }
 
+  /** The seats that are on sale (the map marks them with a type) and have a ticket of ours that the filters leave out: [{ cx, cy, r }]. */
+  function seatsToGrey(binding) {
+    const grey = [];
+    binding.svg.querySelectorAll('g.seats circle[data-component="svg__seat"][type]').forEach(function (seat) {
+      const key = keyOfSeatCircle(seat);
+      if (key !== null && allSeats.has(key) && !shownSeats.has(key)) {
+        grey.push({ cx: seat.getAttribute('cx'), cy: seat.getAttribute('cy'), r: parseFloat(seat.getAttribute('r')) || 15 });
+      }
+    });
+    return grey;
+  }
+
   function draw(binding) {
     const zoomed = showsSeats(binding);
     // Over the seats of a zoomed map the block outlines are not the point: the seats are.
     const dim = enabled && ready && !zoomed ? blocksToDim(current(binding), binding.links, visible) : [];
     const outline = enabled && !zoomed && highlighted !== null ? binding.links.sectionToBlocks.get(highlighted) || [] : [];
     const rings = enabled && zoomed ? seatsToRing(binding) : [];
-    const signature = JSON.stringify([dim, outline, binding.blocks.length, rings]);
+    const greySeats = enabled && ready && zoomed ? seatsToGrey(binding) : [];
+    const signature = JSON.stringify([dim, outline, binding.blocks.length, rings, greySeats]);
     if (binding.overlay && binding.overlay.isConnected && signature === binding.drawn) return;
     binding.drawn = signature;
 
@@ -187,9 +218,19 @@ export function createMapLink(options) {
       binding.overlay.setAttribute('pointer-events', 'none');
     }
     if (binding.overlay.parentNode !== binding.svg || binding.overlay !== binding.svg.lastElementChild) binding.svg.append(binding.overlay); // on top of the map's own
-    const shapes = dim.map(function (i) {
+    const seatShapes = greySeats.map(function (seat) {
+      const cover = doc.createElementNS(SVG_NS, 'circle');
+      cover.setAttribute('cx', seat.cx);
+      cover.setAttribute('cy', seat.cy);
+      cover.setAttribute('r', String(seat.r));
+      cover.setAttribute('fill', '#8c8f99'); // grey like the seats that are not on sale
+      cover.setAttribute('fill-opacity', '0.93');
+      cover.setAttribute('pointer-events', 'none');
+      return cover;
+    });
+    const shapes = seatShapes.concat(dim.map(function (i) {
       return shape(binding, i, { fill: '#8c8f99', 'fill-opacity': '0.88' }); // grey like the map's own unavailable blocks
-    }).concat(outline.map(function (i) {
+    }), outline.map(function (i) {
       return shape(binding, i, { fill: 'none', stroke: '#ffb300', 'stroke-width': '4', 'stroke-linejoin': 'round', 'vector-effect': 'non-scaling-stroke' });
     }), rings.map(function (seat) {
       const ring = doc.createElementNS(SVG_NS, 'circle');
@@ -267,8 +308,22 @@ export function createMapLink(options) {
   }
 
   function addListeners(binding) {
+    /** The ticket of the seat under the mouse, null for a seat with none in our list, undefined if it is not a seat of a zoomed map. */
+    const seatTicketAt = function (target) {
+      const circle = target && target.closest ? target.closest('circle[data-component="svg__seat"]') : null;
+      if (!circle || !showsSeats(binding)) return undefined;
+      return shownSeats.get(keyOfSeatCircle(circle)) || null;
+    };
     const onOver = function (e) {
       if (e.tmsv) return; // our own, sent to make the map show a block's tooltip
+      const ticket = seatTicketAt(e.target);
+      if (ticket !== undefined) {
+        if (ticket !== hoveredSeat) {
+          hoveredSeat = ticket;
+          if (opts.onSeatHover) opts.onSeatHover(ticket);
+        }
+        return;
+      }
       const name = sectionAt(binding, e.target);
       if (name === hovered) return;
       hovered = name;
@@ -276,6 +331,10 @@ export function createMapLink(options) {
     };
     const onOut = function (e) {
       if (e.tmsv) return;
+      if (hoveredSeat !== null && seatTicketAt(e.relatedTarget) === undefined) {
+        hoveredSeat = null; // off the seat (onto another seat, its own mouseover says so)
+        if (opts.onSeatHover) opts.onSeatHover(null);
+      }
       if (blockIndexOf(binding, e.relatedTarget) >= 0) return; // straight on to another block: its mouseover says so
       if (hovered === null) return;
       hovered = null;
@@ -283,6 +342,11 @@ export function createMapLink(options) {
     };
     const onClickBlock = function (e) {
       if (e.tmsv) return;
+      const seat = seatTicketAt(e.target);
+      if (seat !== undefined) {
+        if (seat !== null && opts.onSeatClick) opts.onSeatClick(seat); // the map's own handling of the click goes on
+        return;
+      }
       const name = sectionAt(binding, e.target);
       if (name !== null && opts.onClick) opts.onClick(name);
     };
@@ -476,12 +540,17 @@ export function createMapLink(options) {
   return {
     /**
      * Tell it about our list: `sections` = [{ name, tickets }] (all), `visible` = Set of the names that still show tickets
-     * after the filters, `ready` = the whole list has loaded.
+     * after the filters, `matching` = the tickets the filters leave, `ready` = the whole list has loaded.
      */
     update(state) {
       sections = state.sections || [];
       visible = state.visible || new Set();
       ready = state.ready === true;
+      // Which seat belongs to which ticket (a ticket covers the seats seatFrom..seatTo of its row), with and without the filters.
+      allSeats = new Set();
+      sections.forEach(function (s) { s.tickets.forEach(function (t) { if (t.rowName) seatsOf(t).forEach(function (n) { allSeats.add(seatKey(t.section, t.rowName, n)); }); }); });
+      shownSeats = new Map();
+      (state.matching || []).forEach(function (t) { if (t.rowName) seatsOf(t).forEach(function (n) { shownSeats.set(seatKey(t.section, t.rowName, n), t); }); });
       bindings.forEach(relink);
       drawAll();
       report();

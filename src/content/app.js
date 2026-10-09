@@ -263,7 +263,14 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     // buildSectionGroups annotates tickets in place; keep the snapshot pristine.
     const result = buildSectionGroups(snapshot.tickets.map(function (t) { return Object.assign({}, t); }), Object.assign({ rowConfig: rowConfig(), customBadges }, state));
     view.setCounts(result.counts);
-    if (onSections) onSections({ sections: sectionsOf(snapshot.tickets), visible: new Set(result.groups.map(function (g) { return g.name; })), ready: snapshot.status.isComplete === true });
+    if (onSections) {
+      onSections({
+        sections: sectionsOf(snapshot.tickets),
+        visible: new Set(result.groups.map(function (g) { return g.name; })),
+        matching: result.groups.reduce(function (all, g) { return all.concat(g.tickets); }, []), // the tickets the filters leave
+        ready: snapshot.status.isComplete === true,
+      });
+    }
     const shown = result.groups.reduce(function (n, g) { return n + g.tickets.length; }, 0);
     view.renderCounter(snapshot.tickets.length, snapshot.qty, snapshot.tickets.length - shown);
     if (result.empty === 'no-sections') view.renderMessage('No matching blocks found.');
@@ -291,6 +298,16 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     /** A line about the venue's seat map under the counter (or none, with null). */
     setMapNote(text) {
       view.setMapNote(text);
+    },
+
+    /** The venue's map: the mouse is on a seat of this ticket (or has left it, with null). */
+    highlightTicket(ticket) {
+      view.highlightTicket(ticket ? ticket.id : null);
+    },
+
+    /** The venue's map: a seat of this ticket was clicked: open its section in the list and bring it into view. */
+    openTicket(ticket) {
+      return view.openTicket(ticket ? ticket.id : null);
     },
 
     /** The venue's map: a block of this section was clicked: open it in the list. */

@@ -890,6 +890,168 @@ describe('acting on the map as it is now, not as it was at the last look', () =>
   });
 });
 
+describe('seats on the zoomed map and the tickets of our list', () => {
+  // The zoomed map of buildZoomed(): EASTL8 row J seats 141 142 (on sale), 143 (not); row K 141 142 (on sale); NTHM3 row P seat 36 (not).
+  const ticketJ = { id: 'tj', section: 'EASTL8', originalSection: 'EASTL8', rowName: 'J', seatFrom: '141', seatTo: '142', type: 'standard' };
+  const ticketK = { id: 'tk', section: 'EASTL8', originalSection: 'EASTL8', rowName: 'K', seatFrom: '141', seatTo: '142', type: 'standard' };
+  const allTickets = [ticketJ, ticketK];
+  const stateFor = (matching, ready = true) => ({ sections: [{ name: 'EASTL8', tickets: allTickets }], visible: new Set(matching.length ? ['EASTL8'] : []), matching, ready });
+  const seat = (id) => document.getElementById(id);
+  const greyed = () => Array.from(document.querySelectorAll('#main > g[data-tmsv-overlay] circle[fill="#8c8f99"]')).map((c) => [c.getAttribute('cx'), c.getAttribute('cy')]);
+  const mouse = (el, type, related = null) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, relatedTarget: related }));
+
+  describe('greyed when the filters leave them out', () => {
+    it('greys the on-sale seats whose ticket is filtered out, and only those', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor([ticketJ])); // row K's ticket is filtered out
+      expect(greyed()).toEqual([['7843.65', '5628.51'], ['7808.36', '5652.27']]);
+    });
+
+    it('leaves alone seats not on sale, and on-sale seats we know nothing of (not knowing is not "filtered out")', () => {
+      buildZoomed();
+      document.querySelector('#main g[data-row-name="J"]').insertAdjacentHTML('beforeend', '<circle data-component="svg__seat" id="stranger" type="primary" data-seat-name="199" cx="1" cy="2" r="17.5"></circle>');
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor([ticketJ]));
+      expect(greyed()).not.toContainEqual(['1', '2']); // on sale, no ticket of ours covers it
+      expect(greyed()).not.toContainEqual(['7734.27', '5616.27']); // seat 143: not on sale (no type), and no ticket
+      expect(greyed()).toHaveLength(2);
+    });
+
+    it('greys nothing when the filters leave every ticket', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor(allTickets));
+      expect(greyed()).toEqual([]);
+    });
+
+    it('greys nothing until the whole list has loaded', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor([ticketJ], false));
+      expect(greyed()).toEqual([]);
+      link.update(stateFor([ticketJ], true));
+      expect(greyed()).toHaveLength(2);
+    });
+
+    it('follows the filters as they change', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor([ticketJ]));
+      expect(greyed()).toHaveLength(2);
+      link.update(stateFor([ticketK])); // now row J is the one left out
+      expect(greyed()).toEqual([['7807.4', '5568.85'], ['7771.18', '5593.38']]);
+      link.update(stateFor(allTickets));
+      expect(greyed()).toEqual([]);
+    });
+
+    it('covers the seat exactly and never takes the mouse from it', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor([ticketJ]));
+      const cover = document.querySelector('#main > g[data-tmsv-overlay] circle[fill="#8c8f99"]');
+      expect(cover.getAttribute('r')).toBe('17.5');
+      expect(cover.getAttribute('pointer-events')).toBe('none');
+    });
+
+    it('does not do it on an overview, whatever seats it holds', () => {
+      const svg = buildMap();
+      svg.querySelector('g.seats').innerHTML = '<g data-component="svg__block" data-section-name="EASTL8"><g data-row-name="K"><circle data-component="svg__seat" type="primary" data-seat-name="141" cx="9" cy="9" r="17.5"></circle></g></g>';
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor([ticketJ]));
+      expect(document.querySelectorAll('circle[fill="#8c8f99"]')).toHaveLength(0);
+    });
+
+    it('does nothing for tickets without seats (standing), or with no row', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      const standing = { id: 'st', section: 'STAND', rowName: null, seatFrom: null, seatTo: null };
+      link.update({ sections: [{ name: 'STAND', tickets: [standing] }], visible: new Set(), matching: [], ready: true });
+      expect(greyed()).toEqual([]);
+    });
+  });
+
+  describe('the mouse on a seat', () => {
+    it('says which ticket it is, and when the mouse goes off it', () => {
+      buildZoomed();
+      const onSeatHover = vi.fn();
+      link = createMapLink({ log: () => {}, onSeatHover });
+      link.update(stateFor(allTickets));
+      mouse(seat('a1'), 'mouseover');
+      expect(onSeatHover).toHaveBeenLastCalledWith(ticketJ);
+      mouse(seat('a1'), 'mouseout', document.body);
+      expect(onSeatHover).toHaveBeenLastCalledWith(null);
+      expect(onSeatHover).toHaveBeenCalledTimes(2);
+    });
+
+    it('says it once for a ticket of two seats, whichever of them the mouse is on, and again for another ticket', () => {
+      buildZoomed();
+      const onSeatHover = vi.fn();
+      link = createMapLink({ log: () => {}, onSeatHover });
+      link.update(stateFor(allTickets));
+      mouse(seat('a1'), 'mouseover');
+      mouse(seat('a1'), 'mouseout', seat('a2')); // straight on to its other seat
+      mouse(seat('a2'), 'mouseover');
+      expect(onSeatHover.mock.calls.map((c) => c[0])).toEqual([ticketJ]);
+      mouse(seat('a2'), 'mouseout', seat('b1'));
+      mouse(seat('b1'), 'mouseover');
+      expect(onSeatHover.mock.calls.map((c) => c[0])).toEqual([ticketJ, ticketK]);
+    });
+
+    it('says nothing for a seat whose ticket the filters leave out, or that we know nothing of', () => {
+      buildZoomed();
+      const onSeatHover = vi.fn();
+      link = createMapLink({ log: () => {}, onSeatHover });
+      link.update(stateFor([ticketJ]));
+      mouse(seat('b1'), 'mouseover'); // row K: filtered out
+      mouse(seat('a3'), 'mouseover'); // 143: no ticket
+      expect(onSeatHover).not.toHaveBeenCalled();
+    });
+
+    it('does not take a seat of the overview for one of the zoomed map', () => {
+      const svg = buildMap();
+      svg.querySelector('g.seats').innerHTML = '<g data-component="svg__block" data-section-name="EASTL8"><g data-row-name="J"><circle id="tiny" data-component="svg__seat" type="primary" data-seat-name="141" cx="9" cy="9" r="17.5"></circle></g></g>';
+      const onSeatHover = vi.fn();
+      link = createMapLink({ log: () => {}, onSeatHover });
+      link.update(stateFor(allTickets));
+      mouse(document.getElementById('tiny'), 'mouseover');
+      expect(onSeatHover).not.toHaveBeenCalled();
+    });
+
+    it('says which ticket a clicked seat is, and leaves the map\'s own handling of the click alone', () => {
+      const { main } = buildZoomed();
+      const theirs = vi.fn();
+      main.addEventListener('click', theirs);
+      const onSeatClick = vi.fn();
+      link = createMapLink({ log: () => {}, onSeatClick });
+      link.update(stateFor([ticketJ]));
+      mouse(seat('a1'), 'click');
+      expect(onSeatClick).toHaveBeenCalledWith(ticketJ);
+      expect(theirs).toHaveBeenCalledTimes(1);
+      mouse(seat('b1'), 'click'); // filtered out
+      expect(onSeatClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not hear itself: what we send the map is ours', () => {
+      buildZoomed();
+      const onSeatHover = vi.fn();
+      const onSeatClick = vi.fn();
+      link = createMapLink({ log: () => {}, onSeatHover, onSeatClick });
+      link.update(stateFor(allTickets));
+      ['mouseover', 'click'].forEach((type) => { const e = new MouseEvent(type, { bubbles: true }); e.tmsv = true; seat('a1').dispatchEvent(e); });
+      expect(onSeatHover).not.toHaveBeenCalled();
+      expect(onSeatClick).not.toHaveBeenCalled();
+    });
+
+    it('works with no handlers (a host with no list)', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      link.update(stateFor(allTickets));
+      expect(() => { mouse(seat('a1'), 'mouseover'); mouse(seat('a1'), 'mouseout', document.body); mouse(seat('a1'), 'click'); }).not.toThrow();
+    });
+  });
+});
+
 describe('knowing whether the page has an interactive map', () => {
   it('says so, and tells when that changes', () => {
     document.body.innerHTML = '<p>no map yet</p>';

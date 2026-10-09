@@ -78,6 +78,7 @@ function ticketRow(ticket, sectionName, hooks) {
     'div',
     {
       class: 'ticket',
+      'data-ticket': ticket.id, // what the venue's map names a ticket by (when it has an id: tickets read from the list API)
       on: {
         click: function () { hooks.click(ticket); },
         // The mouse on a ticket is the mouse on its seats on the venue's map (when it is zoomed in to them).
@@ -518,6 +519,8 @@ export function createView(handlers, version) {
   // Names of sections the user has expanded; survives list re-renders.
   const expanded = new Set();
   let highlightedSection = null; // the section the mouse is over on the map
+  let highlightedTicket = null; // the ticket (id) whose seat the mouse is over on the map
+  let scrollTimer = null;
   const mouse = { section: null }; // the section the mouse is on in this list
   const onTicketHover = function (ticket) { if (handlers.onTicketHover) handlers.onTicketHover(ticket); };
   const onShowTicket = function (ticket) { if (handlers.onShowTicket) handlers.onShowTicket(ticket); };
@@ -531,6 +534,19 @@ export function createView(handlers, version) {
   const onSectionHover = function (name, open) { if (handlers.onSectionHover) handlers.onSectionHover(name, open === true); };
   const sectionElement = function (name) {
     return Array.from(content.querySelectorAll('.section')).find(function (el) { return el.getAttribute('data-section') === name; }) || null;
+  };
+  const ticketElement = function (id) {
+    return id == null ? null : Array.from(content.querySelectorAll('.ticket')).find(function (el) { return el.getAttribute('data-ticket') === String(id); }) || null;
+  };
+  /** The ticket the mouse is on, on the map: lit in the list if it is showing, else its section is (it is closed). */
+  const applyTicketHighlight = function () {
+    content.querySelectorAll('.ticket.map-hover, .section.map-seat').forEach(function (el) { el.classList.remove('map-hover', 'map-seat'); });
+    const card = ticketElement(highlightedTicket);
+    if (!card) return null;
+    const section = card.closest('.section');
+    if (section && section.open) card.classList.add('map-hover');
+    else if (section) section.classList.add('map-seat');
+    return card;
   };
   const applySectionHighlight = function () {
     content.querySelectorAll('.section.map-hover').forEach(function (el) { el.classList.remove('map-hover'); });
@@ -725,6 +741,38 @@ export function createView(handlers, version) {
         ...groups.map(function (g) { return sectionNode(g, sort, expanded, { click: onTicketClick, hover: onTicketHover, show: onShowTicket, showSection: onShowSection }, onSectionHover, mouse); })
       );
       applySectionHighlight();
+      applyTicketHighlight();
+    },
+
+    /**
+     * The mouse is on a seat on the venue's map (or has left it, with null): light up its ticket in the list, or its section
+     * if that is closed. After a pause, so a sweep across the seats does not make the list lurch, bring it into view.
+     */
+    highlightTicket(id) {
+      highlightedTicket = id == null ? null : String(id);
+      const card = applyTicketHighlight();
+      clearTimeout(scrollTimer);
+      if (card) {
+        scrollTimer = setTimeout(function () {
+          const target = card.classList.contains('map-hover') ? card : card.closest('.section');
+          if (target && target.isConnected) scrollIntoScroller(target);
+        }, 250);
+      }
+    },
+
+    /** A seat on the venue's map was clicked: open its ticket's section and bring the ticket into view. Returns whether it is in the list. */
+    openTicket(id) {
+      highlightedTicket = id == null ? null : String(id);
+      const card = ticketElement(highlightedTicket);
+      if (!card) return false;
+      const section = card.closest('.section');
+      if (section) {
+        section.open = true;
+        expanded.add(section.getAttribute('data-section'));
+      }
+      applyTicketHighlight();
+      scrollIntoScroller(card);
+      return true;
     },
 
     /** Mark a section (or none, with null) as the one the mouse is over on the venue's map. */

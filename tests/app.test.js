@@ -663,6 +663,18 @@ describe('the venue\'s seat map', () => {
     expect(q('.map-note').hidden).toBe(true);
   });
 
+  it('tells the map which tickets the filters leave (so it can grey the seats of the others)', () => {
+    sampleCards();
+    const { onSections } = makeMapped();
+    app.start();
+    expect(last(onSections).matching).toHaveLength(4); // nothing filtered
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click();
+    const state = last(onSections);
+    expect(state.matching).toHaveLength(1);
+    expect(state.matching[0].section).toBe('102'); // the one resale ticket
+    expect(state.sections.reduce((n, s) => n + s.tickets.length, 0)).toBe(4); // all of them, still
+  });
+
   it('has "Auto zoom map" only when told the page has a map, as the settings say', () => {
     sampleCards();
     make({ autoZoomMap: false });
