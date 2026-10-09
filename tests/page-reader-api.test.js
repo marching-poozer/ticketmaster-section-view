@@ -325,6 +325,13 @@ describe('when the API cannot be used', () => {
     expect(reader.sourceInfo().using).toBe('scroll');
     expect(reader.sourceInfo().gaveUp).toMatch(/disagrees with the page: 3 of 3 cards have no matching ticket, e\.g\. BLOCKG\|26\|80\.75\|primary/);
     expect(warn).toHaveBeenCalled();
+    // ...and says what the API had where the page has something else, as text that can be copied from the console
+    const detail = warn.mock.calls.map((c) => String(c[0])).find((l) => l.includes('For the cards it could not match'));
+    expect(detail).toBeDefined();
+    const parsed = JSON.parse(detail.slice(detail.indexOf('{')));
+    expect(parsed.shape).toMatchObject({ count: 3, types: { seat: 3 } });
+    expect(parsed.unmatched[0].card).toBe('BLOCKG|26|80.75|primary');
+    expect(parsed.unmatched[0].picks.map((p) => p.originalPrice)).toContain(70); // the API's price for that section and row
     expect(last().source).toBe('scroll');
   });
 

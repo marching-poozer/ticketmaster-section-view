@@ -243,13 +243,26 @@ export function picksToTickets(response, options) {
 // --- agreeing with the page ----------------------------------------------------
 
 /**
+ * A section or row name for comparing: the same however it was typed. The page and the API can write one name
+ * with a curly or a straight apostrophe, or with a space more or less, in other case (STANDING-OVER 14'S ONLY).
+ */
+export function normalizeLabel(value) {
+  return String(value == null ? '' : value)
+    .replace(/[\u2018\u2019\u201B\u2032\u02BC`\u00B4]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+/**
  * What identifies a ticket on the page: section, row, price, resale or not. Cards don't show seat
  * numbers or ids, so several tickets can share a key; the order they come in tells them apart.
  */
 export function ticketKey(ticket) {
   return [
-    ticket.originalSection || ticket.section || '',
-    ticket.rowName == null ? '' : ticket.rowName,
+    normalizeLabel(ticket.originalSection || ticket.section || ''),
+    ticket.rowName == null ? '' : normalizeLabel(ticket.rowName),
     Number(ticket.price || 0).toFixed(2),
     ticket.isResale ? 'resale' : 'primary',
   ].join('|');
@@ -284,4 +297,46 @@ export function crossCheck(domTickets, apiTickets, minRatio) {
   });
 
   return { ok: cards.length > 0 && matched / cards.length >= ratio, matched, total: cards.length, missing };
+}
+
+// --- explaining a disagreement -------------------------------------------------
+
+/** A summary of what the API sent, for the console: how many picks, of which `type`s, and every field name seen. */
+export function apiShape(picks) {
+  const types = {};
+  const keys = new Set();
+  (Array.isArray(picks) ? picks : []).forEach(function (pick) {
+    if (!pick || typeof pick !== 'object') return;
+    const type = text(pick.type) || '(none)';
+    types[type] = (types[type] || 0) + 1;
+    Object.keys(pick).forEach(function (k) { keys.add(k); });
+  });
+  return { count: Array.isArray(picks) ? picks.length : 0, types, keys: Array.from(keys).sort() };
+}
+
+/**
+ * For each card key the check could not match (see crossCheck's `missing`), up to two of the API's own picks that come
+ * closest, so it can be seen what the API holds where the page has something else: [{ card: key, picks: [pick, pick] }].
+ * Closest: the same price, the same section, the same row (a price or a section alone is enough to be listed).
+ */
+export function nearMisses(missing, apiTickets, picks) {
+  return (missing || []).slice(0, 6).map(function (key) {
+    const parts = String(key).split('|');
+    parts.pop(); // resale or primary: the point is what else differs
+    const price = parts.pop();
+    const row = parts.pop();
+    const section = parts.join('|');
+    const scored = apiTickets
+      .map(function (t) {
+        let score = 0;
+        if (Number(t.price || 0).toFixed(2) === price) score += 2;
+        if (normalizeLabel(t.originalSection || t.section || '') === section) score += 2;
+        if ((t.rowName == null ? '' : normalizeLabel(t.rowName)) === row) score += 1;
+        return { t, score };
+      })
+      .filter(function (c) { return c.score >= 2; })
+      .sort(function (a, b) { return b.score - a.score || a.t.index - b.t.index; })
+      .slice(0, 2);
+    return { card: key, picks: scored.map(function (c) { return picks[c.t.index]; }).filter(Boolean) };
+  });
 }

@@ -7,7 +7,7 @@
 // quantity steps. Draws no UI. Does nothing until start() is called, and stops
 // completely on stop().
 import { LOG_PREFIX } from '../lib/constants.js';
-import { crossCheck, currencyOf, picksToTickets, ticketKey } from '../lib/quickpicks.js';
+import { apiShape, crossCheck, currencyOf, nearMisses, picksToTickets, ticketKey } from '../lib/quickpicks.js';
 import { parseTicketCard, parseTickets } from '../lib/tickets.js';
 import { createApiSource } from './api-source.js';
 import * as tm from './tm-page.js';
@@ -175,6 +175,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
           timers.push(setTimeout(scheduleSnapshot, VERIFY_GRACE_MS + 100));
         }
         if (Date.now() - mismatchSince > VERIFY_GRACE_MS) {
+          // What the API holds where the page has something else (listing data, nothing personal), as text to copy.
+          console.warn(LOG_PREFIX + 'For the cards it could not match, the API has: ' + JSON.stringify({ shape: apiShape(a.picks), unmatched: nearMisses(check.missing, tickets, a.picks) }));
           giveUp('it disagrees with the page: ' + (check.total - check.matched) + ' of ' + check.total + ' cards have no matching ticket, e.g. ' + check.missing.slice(0, 3).join(', '));
         }
         return null;

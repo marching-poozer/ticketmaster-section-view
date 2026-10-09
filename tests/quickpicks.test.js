@@ -4,6 +4,7 @@ import {
   attributeKey,
   attributeLabel,
   attributeName,
+  apiShape,
   attributesOf,
   crossCheck,
   currencyOf,
@@ -13,6 +14,8 @@ import {
   isListUrl,
   listQuantity,
   listSignature,
+  nearMisses,
+  normalizeLabel,
   pageUrl,
   pickToTicket,
   picksToTickets,
@@ -306,5 +309,72 @@ describe('agreeing with the page', () => {
 
   it('cannot say anything without cards', () => {
     expect(crossCheck([], [api()]).ok).toBe(false);
+  });
+});
+
+describe('comparing names the same however they were written', () => {
+  it('normalizeLabel folds apostrophes, spaces and case', () => {
+    expect(normalizeLabel("STANDING-OVER 14'S ONLY")).toBe("STANDING-OVER 14'S ONLY");
+    expect(normalizeLabel('Standing-over 14\u2019s  only ')).toBe("STANDING-OVER 14'S ONLY");
+    expect(normalizeLabel('standing-over 14\u2018s only')).toBe("STANDING-OVER 14'S ONLY");
+    expect(normalizeLabel('14`S')).toBe("14'S");
+    expect(normalizeLabel(null)).toBe('');
+    expect(normalizeLabel(undefined)).toBe('');
+    expect(normalizeLabel(12)).toBe('12');
+  });
+
+  it('a card and a pick that write a section with different apostrophes have the same key', () => {
+    const card = { section: "STANDING-OVER 14'S ONLY", rowName: null, price: 83, isResale: false };
+    const pick = pickToTicket({ id: '1', type: 'standing', section: 'Standing-Over 14\u2019S Only', row: '', originalPrice: 83, name: 'Full Price Ticket' });
+    expect(ticketKey(pick)).toBe(ticketKey(card));
+    expect(ticketKey(card)).toBe("STANDING-OVER 14'S ONLY||83.00|primary");
+  });
+
+  it('a row in other case is the same row (a lettered row)', () => {
+    expect(ticketKey({ section: 'A', rowName: 'u', price: 1, isResale: false })).toBe(ticketKey({ section: 'A', rowName: 'U', price: 1, isResale: false }));
+  });
+
+  it('still tells apart different sections, rows, prices and resale-ness', () => {
+    const base = { section: 'A', rowName: '1', price: 10, isResale: false };
+    [{ section: 'B' }, { rowName: '2' }, { price: 11 }, { isResale: true }].forEach((change) => {
+      expect(ticketKey({ ...base, ...change })).not.toBe(ticketKey(base));
+    });
+  });
+});
+
+describe('explaining a disagreement', () => {
+  const picks = [
+    { id: 'a', type: 'seat', section: 'NTHU3', row: 'U', originalPrice: 70, name: 'Verified Resale Ticket' },
+    { id: 'b', type: 'seat', section: 'NTHU3', row: 'V', originalPrice: 72, name: 'Full Price Ticket' },
+    { id: 'c', type: 'standing', section: 'GA1', row: '', originalPrice: 83, name: 'Full Price Ticket', extra: 1 },
+    { id: 'd', type: 'seat', section: 'OTHER', row: '5', originalPrice: 12, name: 'Full Price Ticket' },
+  ];
+  const tickets = picksToTickets({ picks });
+
+  it('apiShape counts the picks by type and lists every field seen', () => {
+    expect(apiShape(picks)).toEqual({ count: 4, types: { seat: 3, standing: 1 }, keys: ['extra', 'id', 'name', 'originalPrice', 'row', 'section', 'type'] });
+    expect(apiShape(undefined)).toEqual({ count: 0, types: {}, keys: [] });
+    expect(apiShape([null, 'x', {}]).types).toEqual({ '(none)': 1 });
+  });
+
+  it('shows, for a card with no match, the picks with the same section (a different price)', () => {
+    const [miss] = nearMisses(['NTHU3|U|82.60|resale'], tickets, picks);
+    expect(miss.card).toBe('NTHU3|U|82.60|resale');
+    expect(miss.picks.map((p) => p.id)).toEqual(['a', 'b']); // same section; the same row first
+  });
+
+  it('shows the pick with the same price when the section is named differently', () => {
+    const [miss] = nearMisses(["STANDING-OVER 14'S ONLY||83.00|primary"], tickets, picks);
+    expect(miss.picks.map((p) => p.id)).toEqual(['c']);
+    expect(miss.picks[0].section).toBe('GA1');
+  });
+
+  it('shows nothing for a card nothing in the API resembles, and at most two picks, and at most six cards', () => {
+    expect(nearMisses(['NOWHERE|9|1.00|primary'], tickets, picks)).toEqual([{ card: 'NOWHERE|9|1.00|primary', picks: [] }]);
+    const many = Array.from({ length: 8 }, (_, i) => 'NTHU3|' + i + '|1.00|primary');
+    const out = nearMisses(many, tickets, picks);
+    expect(out).toHaveLength(6);
+    expect(out.every((m) => m.picks.length <= 2)).toBe(true);
+    expect(nearMisses(undefined, tickets, picks)).toEqual([]);
   });
 });
