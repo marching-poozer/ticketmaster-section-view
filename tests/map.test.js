@@ -553,6 +553,17 @@ describe('the greyed blocks, and what the console is told', () => {
     expect(summary.sectionsWithoutBlock).toEqual([]);
   });
 
+  it('says what the API calls the tier of a section with no block, to see why it did not link', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({
+      sections: [{ name: 'ODDBALL1', tickets: [{ section: 'ODDBALL1', originalSection: 'ODDBALL1', description: 'THE ODD TIER' }] }, { name: 'PLAIN', tickets: [{ section: 'PLAIN' }] }],
+      visible: new Set(),
+      ready: true,
+    });
+    expect(link.summary().sectionsWithoutBlock).toEqual(['ODDBALL1 ("THE ODD TIER")', 'PLAIN']);
+  });
+
   it('has no summary without a map', () => {
     document.body.innerHTML = '<p>no map</p>';
     link = createMapLink({ log: () => {} });

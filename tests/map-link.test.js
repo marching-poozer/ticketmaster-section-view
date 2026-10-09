@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { blockKeys, blocksToDim, keyOf, linkBlocks, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
+import { abbreviates, blockKeys, blocksToDim, keyOf, linkBlocks, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
 import { picksToTickets, segmentIdOf } from '../src/lib/quickpicks.js';
 
 const o2 = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/o2-map-blocks.json'), 'utf8'));
@@ -119,6 +119,122 @@ describe('linking The O2 Belfast\'s map to its sections', () => {
       expect(links.blockToSection.get(o2.blocks.indexOf(b))).toBe(compass[dir] + tier[0] + n);
     });
     expect(links.blockToSection.size).toBe(seatBlocks.length);
+  });
+});
+
+describe('a section code that abbreviates a block\'s name', () => {
+  it.each([
+    ['NTHM3', 'NORTH MIDDLE 3'],
+    ['STHL5', 'SOUTH LOWER 5'],
+    ['EASTM1', 'EAST MIDDLE 1'],
+    ['WESTU7', 'WEST UPPER 7'],
+    ['NTHU3', 'NORTH UPPER 3'],
+    ['EASTL8', 'East Lower 8'],
+    ['nthm2', 'NORTH MIDDLE 2'],
+  ])('%s is %s', (code, name) => {
+    expect(abbreviates(code, name)).toBe(true);
+  });
+
+  it.each([
+    ['NTHM3', 'NORTH MIDDLE 4', 'another number'],
+    ['NTHM3', 'NORTH UPPER 3', 'another tier'],
+    ['NTHM3', 'SOUTH MIDDLE 3', 'another side'],
+    ['NTHM', 'NORTH MIDDLE 3', 'no number, against a name with one'],
+    ['NTHM3', 'NORTH MIDDLE', 'a number, against a name with none'],
+    ['NTHM3', 'NORTH 3', 'one word: too easy to find a code in'],
+    ['', 'NORTH MIDDLE 3', 'nothing'],
+    ['NTHM3', '', 'no name'],
+    ['STANDING', 'GROUND FLOOR STANDING', 'does not start with the first word\'s letter'],
+    ['NMT3', 'NORTH MIDDLE 3', 'letters out of order'],
+  ])('%s is not %s (%s)', (code, name) => {
+    expect(abbreviates(code, name)).toBe(false);
+  });
+
+  it('copes with nothing at all', () => {
+    expect(abbreviates(null, null)).toBe(false);
+    expect(abbreviates(undefined, 'NORTH MIDDLE 3')).toBe(false);
+  });
+});
+
+describe('linking the whole of The O2 Belfast\'s map with no help from the tickets', () => {
+  // Every seat block, as the API would call it: NTH / STH / EAST / WEST + L / M / U + number. No description, no ticket: just the codes.
+  const compass = { NORTH: 'NTH', SOUTH: 'STH', EAST: 'EAST', WEST: 'WEST' };
+  const seatBlocks = o2.blocks.filter((b) => /^(NORTH|SOUTH|EAST|WEST) (LOWER|MIDDLE|UPPER) \d$/.test(b.name));
+  const codeOf = (b) => { const [dir, tier, n] = b.name.split(' '); return compass[dir] + tier[0] + n; };
+  const codes = seatBlocks.map((b) => ({ name: codeOf(b), tickets: [] }));
+
+  it('links every one, the middle tier too (those did not link by description)', () => {
+    const links = linkBlocks(o2.blocks, codes);
+    seatBlocks.forEach((b) => expect(links.blockToSection.get(o2.blocks.indexOf(b))).toBe(codeOf(b)));
+    expect(links.blockToSection.size).toBe(seatBlocks.length);
+    expect(seatBlocks.filter((b) => / MIDDLE /.test(b.name)).length).toBeGreaterThan(10);
+  });
+
+  it('does not mix them up: each code is on its own block', () => {
+    const links = linkBlocks(o2.blocks, codes);
+    const sectionsUsed = [...links.blockToSection.values()];
+    expect(new Set(sectionsUsed).size).toBe(sectionsUsed.length);
+  });
+
+  it('still prefers a match by name or id: the strong keys come first', () => {
+    const withTicket = [{ name: 'NTHU3', tickets: [{ section: 'NTHU3', originalSection: 'NTHU3', description: 'NORTH UPPER TIER' }] }, ...codes.filter((c) => c.name !== 'NTHU3')];
+    const links = linkBlocks(o2.blocks, withTicket);
+    expect(links.blockToSection.get(blockIndex('NORTH UPPER 3'))).toBe('NTHU3');
+  });
+
+  it('does not guess when two sections could be the same block', () => {
+    const links = linkBlocks(o2.blocks, [{ name: 'NTHM3', tickets: [] }, { name: 'NTM3', tickets: [] }]); // both abbreviate NORTH MIDDLE 3
+    expect(links.blockToSection.get(blockIndex('NORTH MIDDLE 3'))).toBeUndefined();
+  });
+
+  it('does not link a standing or accessible block by abbreviation', () => {
+    const links = linkBlocks(o2.blocks, [{ name: "STANDING-OVER 14'S ONLY", tickets: [] }, { name: 'STAND', tickets: [] }]);
+    expect(links.blockToSection.size).toBe(0);
+  });
+});
+
+describe('a section whose description points at another block (the accessible platforms)', () => {
+  const ticket = (name, description) => ({ section: name, originalSection: name, description });
+  const sections = [
+    { name: 'WESTT7', tickets: [ticket('WESTT7', 'WEST UPPER TIER')] }, // an accessible platform, described like the upper tier it is in
+    { name: 'WESTU7', tickets: [ticket('WESTU7', 'WEST UPPER TIER')] },
+  ];
+
+  it('keeps its own block, and does not take the block of the section it is described like', () => {
+    const links = linkBlocks(o2.blocks, sections);
+    expect(links.blockToSection.get(blockIndex('WESTT7'))).toBe('WESTT7');
+    expect(links.blockToSection.get(blockIndex('WEST UPPER 7'))).toBe('WESTU7');
+    expect(links.sectionToBlocks.get('WESTT7')).toEqual([blockIndex('WESTT7')]);
+  });
+
+  it('whatever order the sections come in', () => {
+    const links = linkBlocks(o2.blocks, [...sections].reverse());
+    expect(links.blockToSection.get(blockIndex('WESTT7'))).toBe('WESTT7');
+    expect(links.blockToSection.get(blockIndex('WEST UPPER 7'))).toBe('WESTU7');
+  });
+
+  it('a section that has its own block does not also claim one by description', () => {
+    const links = linkBlocks(o2.blocks, [sections[0]]); // WESTT7 alone: it is no reason to call WEST UPPER 7 its block
+    expect(links.blockToSection.get(blockIndex('WEST UPPER 7'))).toBeUndefined();
+  });
+});
+
+describe('the middle tier, whatever its tickets say about it', () => {
+  it('links by abbreviation when the description is no help (the real one was not)', () => {
+    const odd = (name, description) => ({ name, tickets: [{ section: name, originalSection: name, description }] });
+    const links = linkBlocks(o2.blocks, [odd('NTHM2', 'NORTH MEZZANINE'), odd('STHM1', ''), odd('EASTM8', 'LEVEL 2 EAST'), odd('WESTM3', 'something else')]);
+    expect(links.blockToSection.get(blockIndex('NORTH MIDDLE 2'))).toBe('NTHM2');
+    expect(links.blockToSection.get(blockIndex('SOUTH MIDDLE 1'))).toBe('STHM1');
+    expect(links.blockToSection.get(blockIndex('EAST MIDDLE 8'))).toBe('EASTM8');
+    expect(links.blockToSection.get(blockIndex('WEST MIDDLE 3'))).toBe('WESTM3');
+  });
+
+  it('a description that fits and an abbreviation that fits make the surest link of the guesses', () => {
+    const links = linkBlocks(o2.blocks, [
+      { name: 'NTHM3', tickets: [{ section: 'NTHM3', originalSection: 'NTHM3', description: 'NORTH MIDDLE TIER' }] },
+      { name: 'NTM3', tickets: [{ section: 'NTM3', originalSection: 'NTM3', description: '' }] }, // abbreviates it too, but nothing else says so
+    ]);
+    expect(links.blockToSection.get(blockIndex('NORTH MIDDLE 3'))).toBe('NTHM3');
   });
 });
 

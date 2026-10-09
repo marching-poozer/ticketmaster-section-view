@@ -234,7 +234,10 @@ export function createMapLink(options) {
       linked: map.links.blockToSection.size,
       veiled,
       unlinked,
-      sectionsWithoutBlock: sections.filter(function (s) { return !linkedSections.has(s.name); }).map(function (s) { return s.name; }),
+      sectionsWithoutBlock: sections.filter(function (s) { return !linkedSections.has(s.name); }).map(function (s) {
+        const described = (s.tickets.find(function (t) { return t.description; }) || {}).description; // what the API calls its tier: to see why it did not link
+        return s.name + (described ? ' ("' + described + '")' : '');
+      }),
     };
   }
 
