@@ -1,0 +1,18 @@
+{
+  "_note": "Ancestor chain of a ticket card on an event page, as reported by the user from ticketmaster.ie (viewport 1238x1054). Innermost first. The scroller is the overflow-y:auto div wrapping #list-view; #quickpicks has 5 children (banner, results header, chips, delivery, list region).",
+  "viewport": [1238, 1054],
+  "chain": [
+    { "tag": "div", "role": "button", "display": "flex", "overflowY": "visible", "w": 400, "h": 106, "children": 2 },
+    { "tag": "div", "testid": "quickpicksList", "display": "block", "position": "relative", "overflowY": "visible", "w": 400, "h": 2187, "children": 21 },
+    { "tag": "div", "id": "quickpicks-list", "role": "region", "display": "flex", "overflowY": "visible", "w": 400, "h": 2272, "children": 3 },
+    { "tag": "div", "display": "block", "overflowY": "visible", "w": 400, "h": 2272, "children": 1 },
+    { "tag": "div", "id": "quickpicks", "display": "flex", "overflowY": "visible", "w": 400, "h": 2509, "children": 5 },
+    { "tag": "div", "id": "list-view", "display": "contents", "w": 0, "h": 0, "children": 1 },
+    { "tag": "div", "display": "flex", "overflowY": "auto", "w": 413, "h": 846, "scrollH": 2509, "children": 1 },
+    { "tag": "main", "id": "main-content", "display": "flex", "position": "relative", "overflowY": "visible", "w": 413, "h": 846, "children": 1 },
+    { "tag": "div", "display": "flex", "position": "relative", "overflowY": "hidden", "w": 1238, "h": 846, "children": 2 },
+    { "tag": "div", "display": "flex", "overflowY": "visible", "w": 1238, "h": 1054, "children": 3 },
+    { "tag": "div", "id": "__next", "display": "block", "w": 1238, "h": 1054, "children": 2 },
+    { "tag": "body", "display": "block", "w": 1238, "h": 1054, "children": 9 }
+  ]
+}

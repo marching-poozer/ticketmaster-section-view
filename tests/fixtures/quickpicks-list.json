@@ -1,0 +1,49 @@
+{
+    "quantity": 2,
+    "eventId": "18006514C1CDA46A",
+    "total": 84,
+    "picks": [
+        {
+            "id": "-1583548577",
+            "type": "seat",
+            "section": "BLOCKE",
+            "row": "23",
+            "seatFrom": "125",
+            "seatTo": "126",
+            "name": "Full Price Ticket",
+            "originalPrice": 94.80,
+            "description": "BLOCK E",
+            "areaName": "BLOCKE",
+            "placeDescriptionId": "IE5DOLBSGQ",
+            "hasSpecialDescription": false,
+            "offerIds": [
+                "GJ6DC7BUHE"
+            ],
+            "snapshotImageUrl": "image?systemId=HOST_UK&sectionNames=BLOCKE&placeId=IJGE6Q2LIU5DEMZ2GEZDK",
+            "quality": 0.48,
+            "attributes": []
+        },
+        {
+            "id": "144890456",
+            "type": "seat",
+            "section": "BLOCKE",
+            "row": "24",
+            "seatFrom": "116",
+            "seatTo": "117",
+            "name": "Full Price Ticket",
+            "originalPrice": 94.80,
+            "description": "BLOCK E",
+            "areaName": "BLOCKE",
+            "placeDescriptionId": "IE5DOLBSGQ",
+            "hasSpecialDescription": false,
+            "offerIds": [
+                "GJ6DC7BUHE"
+            ],
+            "snapshotImageUrl": "image?systemId=HOST_UK&sectionNames=BLOCKE&placeId=IJGE6Q2LIU5DENB2GEYTM",
+            "quality": 0.48,
+            "attributes": [
+                "aisle"
+            ]
+        }
+    ]
+}

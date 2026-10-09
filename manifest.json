@@ -1,0 +1,171 @@
+{
+  "manifest_version": 3,
+  "name": "Ticketmaster Section View",
+  "version": "2.0.0",
+  "description": "Seat-scouting pane for Ticketmaster: groups ticket options by section with price, resale-markup and best-seat badges.",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "storage"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Section View",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.ticketmaster.com/*",
+        "*://*.ticketmaster.ca/*",
+        "*://*.ticketmaster.co.uk/*",
+        "*://*.ticketmaster.ie/*",
+        "*://*.ticketmaster.de/*",
+        "*://*.ticketmaster.at/*",
+        "*://*.ticketmaster.ch/*",
+        "*://*.ticketmaster.nl/*",
+        "*://*.ticketmaster.be/*",
+        "*://*.ticketmaster.fr/*",
+        "*://*.ticketmaster.es/*",
+        "*://*.ticketmaster.it/*",
+        "*://*.ticketmaster.pt/*",
+        "*://*.ticketmaster.dk/*",
+        "*://*.ticketmaster.fi/*",
+        "*://*.ticketmaster.no/*",
+        "*://*.ticketmaster.se/*",
+        "*://*.ticketmaster.pl/*",
+        "*://*.ticketmaster.cz/*",
+        "*://*.ticketmaster.hu/*",
+        "*://*.ticketmaster.gr/*",
+        "*://*.ticketmaster.ae/*",
+        "*://*.ticketmaster.com.au/*",
+        "*://*.ticketmaster.co.nz/*",
+        "*://*.ticketmaster.com.mx/*",
+        "*://*.ticketmaster.com.br/*",
+        "*://*.ticketmaster.cl/*",
+        "*://*.ticketmaster.com.ar/*",
+        "*://*.ticketmaster.co.za/*",
+        "*://*.ticketmaster.sg/*",
+        "*://*.ticketmaster.hk/*",
+        "*://*.ticketmaster.com.tr/*",
+        "*://*.ticketmaster.com.my/*",
+        "*://*.ticketmaster.co.th/*"
+      ],
+      "js": [
+        "src/content/early.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.ticketmaster.com/*",
+        "*://*.ticketmaster.ca/*",
+        "*://*.ticketmaster.co.uk/*",
+        "*://*.ticketmaster.ie/*",
+        "*://*.ticketmaster.de/*",
+        "*://*.ticketmaster.at/*",
+        "*://*.ticketmaster.ch/*",
+        "*://*.ticketmaster.nl/*",
+        "*://*.ticketmaster.be/*",
+        "*://*.ticketmaster.fr/*",
+        "*://*.ticketmaster.es/*",
+        "*://*.ticketmaster.it/*",
+        "*://*.ticketmaster.pt/*",
+        "*://*.ticketmaster.dk/*",
+        "*://*.ticketmaster.fi/*",
+        "*://*.ticketmaster.no/*",
+        "*://*.ticketmaster.se/*",
+        "*://*.ticketmaster.pl/*",
+        "*://*.ticketmaster.cz/*",
+        "*://*.ticketmaster.hu/*",
+        "*://*.ticketmaster.gr/*",
+        "*://*.ticketmaster.ae/*",
+        "*://*.ticketmaster.com.au/*",
+        "*://*.ticketmaster.co.nz/*",
+        "*://*.ticketmaster.com.mx/*",
+        "*://*.ticketmaster.com.br/*",
+        "*://*.ticketmaster.cl/*",
+        "*://*.ticketmaster.com.ar/*",
+        "*://*.ticketmaster.co.za/*",
+        "*://*.ticketmaster.sg/*",
+        "*://*.ticketmaster.hk/*",
+        "*://*.ticketmaster.com.tr/*",
+        "*://*.ticketmaster.com.my/*",
+        "*://*.ticketmaster.co.th/*"
+      ],
+      "js": [
+        "src/content/loader.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/content/display.js",
+        "src/content/app.js",
+        "src/content/inline.js",
+        "src/content/view-switch.js",
+        "src/content/pane.js",
+        "src/content/capture.js",
+        "src/content/api-source.js",
+        "src/content/page-reader.js",
+        "src/content/view.js",
+        "src/content/styles.js",
+        "src/content/tm-page.js",
+        "src/lib/*.js"
+      ],
+      "matches": [
+        "*://*.ticketmaster.com/*",
+        "*://*.ticketmaster.ca/*",
+        "*://*.ticketmaster.co.uk/*",
+        "*://*.ticketmaster.ie/*",
+        "*://*.ticketmaster.de/*",
+        "*://*.ticketmaster.at/*",
+        "*://*.ticketmaster.ch/*",
+        "*://*.ticketmaster.nl/*",
+        "*://*.ticketmaster.be/*",
+        "*://*.ticketmaster.fr/*",
+        "*://*.ticketmaster.es/*",
+        "*://*.ticketmaster.it/*",
+        "*://*.ticketmaster.pt/*",
+        "*://*.ticketmaster.dk/*",
+        "*://*.ticketmaster.fi/*",
+        "*://*.ticketmaster.no/*",
+        "*://*.ticketmaster.se/*",
+        "*://*.ticketmaster.pl/*",
+        "*://*.ticketmaster.cz/*",
+        "*://*.ticketmaster.hu/*",
+        "*://*.ticketmaster.gr/*",
+        "*://*.ticketmaster.ae/*",
+        "*://*.ticketmaster.com.au/*",
+        "*://*.ticketmaster.co.nz/*",
+        "*://*.ticketmaster.com.mx/*",
+        "*://*.ticketmaster.com.br/*",
+        "*://*.ticketmaster.cl/*",
+        "*://*.ticketmaster.com.ar/*",
+        "*://*.ticketmaster.co.za/*",
+        "*://*.ticketmaster.sg/*",
+        "*://*.ticketmaster.hk/*",
+        "*://*.ticketmaster.com.tr/*",
+        "*://*.ticketmaster.com.my/*",
+        "*://*.ticketmaster.co.th/*"
+      ]
+    }
+  ]
+}

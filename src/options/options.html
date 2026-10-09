@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Section View settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <h1>Section View</h1>
+    <p class="lede">Section View shows Ticketmaster's tickets grouped by section.</p>
+
+    <fieldset id="mode">
+      <legend>Show Section View</legend>
+
+      <label class="choice">
+        <input type="radio" name="displayMode" value="inline">
+        <span>
+          <strong>In place of Ticketmaster's ticket list</strong>
+          <small>
+            Takes over the list inside Ticketmaster's own pane, so its filter chips (quantity, price, ticket types)
+            stay available above. While tickets load it covers the whole pane. The toolbar icon, or the link in the
+            view, switches back to Ticketmaster's list. If the list can't be found on a page, the floating pane below
+            is used instead.
+          </small>
+        </span>
+      </label>
+
+      <label class="choice">
+        <input type="radio" name="displayMode" value="pane">
+        <span>
+          <strong>In a floating pane</strong>
+          <small>
+            A pane docked to the left or right edge of the page, floating over it without resizing it. Show or hide
+            it with the tab on the screen edge or the toolbar icon.
+          </small>
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset id="size">
+      <legend>Text size</legend>
+
+      <label class="choice">
+        <input type="radio" name="uiSize" value="compact">
+        <span>
+          <strong>Compact</strong>
+          <small>Small, dense text. Fits the most tickets on screen.</small>
+        </span>
+      </label>
+
+      <label class="choice">
+        <input type="radio" name="uiSize" value="match">
+        <span>
+          <strong>Match Ticketmaster</strong>
+          <small>The same size as the text in Ticketmaster's own ticket list (measured from the page).</small>
+        </span>
+      </label>
+
+      <label class="choice">
+        <input type="radio" name="uiSize" value="comfort">
+        <span>
+          <strong>Comfortable</strong>
+          <small>A little larger than Ticketmaster's list.</small>
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset id="loading">
+      <legend>Loading tickets</legend>
+
+      <label class="choice">
+        <input type="radio" name="loadMode" value="api">
+        <span>
+          <strong>Read Ticketmaster's list directly</strong>
+          <small>
+            Asks Ticketmaster for the whole ticket list the way its own page does, instead of scrolling the page to
+            load it. Much faster, and it brings seat numbers, Ticketmaster's seat quality score and attributes such as
+            aisle seats. Every ticket read this way is checked against the cards on the page first; if the two don't
+            agree, or the list can't be read, Section View scrolls the page instead.
+          </small>
+        </span>
+      </label>
+
+      <label class="choice">
+        <input type="radio" name="loadMode" value="scroll">
+        <span>
+          <strong>Scroll the page's list</strong>
+          <small>Scrolls Ticketmaster's list until it has loaded every ticket, as earlier versions did. Slower, and no seat numbers.</small>
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset id="rows">
+      <legend>Front rows</legend>
+      <p class="hint">
+        The "First N Rows" filter (N is this number) finds the first few rows of each tier; the "1st Row" filter finds
+        just the first. This is how many count as the front, unless a venue sets its own below.
+      </p>
+      <div class="row">
+        <label class="row-label wide" for="front-rows">Front rows</label>
+        <input id="front-rows" type="text" inputmode="numeric" size="3" autocomplete="off">
+        <span class="inline-message" id="front-rows-message" role="status"></span>
+      </div>
+    </fieldset>
+
+    <fieldset id="badges">
+      <legend>Custom badges</legend>
+      <p class="hint">
+        Tag tickets by their text. Each badge has a pattern (a regular expression, ignoring case) that's tested against
+        everything Ticketmaster shows on the ticket: section, row, seat, ticket type ("Aisle Seating Ticket") and so on
+        (and also against the title Section View lists the ticket under, e.g. "Row 23 (Aisle Seating Ticket)", so you
+        can write a pattern from either). A badge shows on the tickets it matches and gets its own filter pill. For example, name: Aisle, pattern:
+        <code>aisle</code>; or <code>aisle|end of row</code> to match either. These apply at every venue; each
+        venue's own badges are set below, or from the 📍 button in Section View.
+      </p>
+      <details class="pattern-help" id="pattern-help">
+        <summary>Pattern syntax</summary>
+        <p>
+          Patterns are JavaScript regular expressions, always ignoring case. Write just the pattern: no slashes and no
+          flags (<code>aisle</code>, not <code>/aisle/i</code>). A pattern matches if it is found <em>anywhere</em> in
+          the ticket's text, which reads like this:
+        </p>
+        <pre>Section BLOCKG Row 26 Full Price Ticket €80.75 each</pre>
+        <p>
+          It is also tried on the ticket's title in Section View, which reads like
+          <code>Row 26 • Seat 12 (Aisle Seating Ticket)</code>; a ticket matches if either one does. Note the brackets
+          there are part of that title, so <code>(Aisle Seating Ticket)</code> on its own is a <em>group</em> and
+          matches "Aisle Seating Ticket", while <code>\(Aisle Seating Ticket\)</code> asks for real brackets.
+        </p>
+        <table>
+          <tbody>
+            <tr><td><code>aisle</code></td><td>the word anywhere ("Aisle Seating Ticket")</td></tr>
+            <tr><td><code>aisle|end of row</code></td><td><code>|</code> means or: either phrase</td></tr>
+            <tr><td><code>\bresale\b</code></td><td><code>\b</code> is a word edge, so "presale" doesn't match</td></tr>
+            <tr><td><code>Row (21|22)\b</code></td><td>Row 21 or Row 22, but not Row 210; brackets group</td></tr>
+            <tr><td><code>Row [A-C]\b</code></td><td><code>[ ]</code> is one character out of a set or range</td></tr>
+            <tr><td><code>BLOCK[A-G]</code></td><td>a block from A to G</td></tr>
+            <tr><td><code>€\d\d\.\d\d each</code></td><td><code>\d</code> is a digit; <code>\.</code> is a literal dot</td></tr>
+            <tr><td><code>^Section BLOCKG</code></td><td><code>^</code> and <code>$</code> are the start and end of the text</td></tr>
+            <tr><td><code>seats?</code></td><td><code>?</code> makes the character before it optional</td></tr>
+            <tr><td><code>a.*b</code></td><td><code>.</code> is any character, <code>*</code> means any number of them</td></tr>
+          </tbody>
+        </table>
+        <p>
+          These characters have a special meaning: <code>. * + ? ( ) [ ] { } | \ ^ $</code>. To match one literally,
+          put a backslash before it (<code>\(</code>). Letters, digits and spaces just match themselves.
+        </p>
+      </details>
+      <div id="global-badges"></div>
+      <div class="badge-actions">
+        <button type="button" id="save-badges">Save badges</button>
+        <span class="inline-message" id="badges-message" role="status"></span>
+        <span class="saved-note" id="badges-saved" role="status"></span>
+      </div>
+    </fieldset>
+
+    <fieldset id="venues">
+      <legend>Venues</legend>
+      <p class="hint">
+        Row numbers aren't the same everywhere: some venues start at Row 1, others number straight on from one tier
+        to the next (3Arena, Dublin: the lower tier starts at Row 21 and the upper tier at Row 33), and some name their
+        rows with letters (Row A, Row B, ... Row AA). Tell Section View where each tier starts, as numbers
+        (<code>21, 33</code>) or letters (<code>A, K</code>), so "1st Row" and "First N Rows" mean the right thing. You
+        can also set this from the
+        📍 button in Section View's header while you're on the venue's event page.
+      </p>
+      <p class="hint" id="venues-empty">No venues saved yet.</p>
+      <div id="venue-list"></div>
+    </fieldset>
+
+    <fieldset id="pane-options">
+      <legend>Floating pane</legend>
+      <p class="hint">Used in floating-pane mode, and as the stand-in when the list can't be found. Resize it by dragging its inner edge.</p>
+
+      <div class="row">
+        <span class="row-label">Side</span>
+        <label><input type="radio" name="paneSide" value="left"> Left</label>
+        <label><input type="radio" name="paneSide" value="right"> Right</label>
+      </div>
+
+      <div class="row">
+        <span class="row-label">Width</span>
+        <span id="width-label"></span>
+        <button type="button" id="reset-width"></button>
+      </div>
+    </fieldset>
+  </main>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Editor
+.vscode/settings.json
+
+# Node / test tooling
+node_modules/
+coverage/
