@@ -559,6 +559,7 @@ describe('hosting hooks', () => {
       'beforeend',
       '<div data-testid="quickpicksList"><div><button><svg class="StarCircledFilledIcon___X"></svg><span><span>VIP Packages</span><span>€100.00 each</span></span><span>Show Tickets</span></button></div></div>'
     );
+    addLoadedLabel(1, 1);
     const pressed = vi.fn();
     document.querySelector('button').addEventListener('click', pressed);
     make();

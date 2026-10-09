@@ -19,6 +19,7 @@ const VERIFY_GRACE_MS = 4000; // how long the API's tickets may disagree with th
 const VIP_STEP_MS = 200;
 const VIP_TRIES = 15; // up to ~3s for the VIP packages to appear once their row is pressed
 const LOAD_STEP_MS = 400;
+const VIP_WAIT_MS = 20000; // how long to wait for the list to say it has loaded before opening the VIP row anyway
 const LOAD_TRIES = 40; // up to ~16s of scrolling to bring one ticket's card into the page
 
 function sleep(ms) {
@@ -39,6 +40,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   let lastSent = null;
   let debounceTimer = null;
   let autoScrollInterval = null;
+  let lastScrollLogged = null; // the loaded count last written to the console by the scroll loop
 
   let loadMode = initialMode === 'scroll' ? 'scroll' : 'api'; // 'api' | 'scroll'
   let gaveUp = null; // why the API isn't being used on this page, or null
@@ -102,6 +104,10 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
       return;
     }
 
+    if (status.loaded !== lastScrollLogged) {
+      lastScrollLogged = status.loaded;
+      console.log(LOG_PREFIX + 'Scrolling the list: ' + status.loaded + (status.total ? ' of ' + status.total : '') + ' loaded.');
+    }
     tm.scrollToLoadMore();
     scheduleSnapshot();
   }
@@ -110,6 +116,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     if (!running) return;
     stopAutoScroll();
     console.log(LOG_PREFIX + 'Starting card-anchored auto-scroll...');
+    lastScrollLogged = null;
     autoScrollInterval = setInterval(autoScrollTick, SCROLL_INTERVAL_MS);
   }
 
@@ -191,16 +198,20 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   /**
    * Scrolling the page's cards (not reading the API): the VIP packages are only in the page once Ticketmaster's
    * "VIP Packages" row is open, so open it, for them to be in our list like any other ticket (the VIP pill then
-   * shows or hides them). Once for each quantity / sort the list is read for, and not at all if the packages are
-   * already showing: pressing the button again would close them.
+   * shows or hides them). Once the list has loaded (or after VIP_WAIT_MS, if the page never says so), once for each
+   * quantity / sort the list is read for, and not at all if the packages are already showing: pressing the button
+   * again would close them.
    */
-  function openVipRow(domTickets, qty, pageSort) {
+  function openVipRow(domTickets, qty, pageSort, listLoaded) {
+    // Not while the list is still being scrolled in: opening the row re-renders the list, which is no time for that.
+    if (!listLoaded && Date.now() - startedAt < VIP_WAIT_MS) return;
     const key = qty + '|' + pageSort;
     if (vipOpenedFor === key) return;
     const row = tm.findVipRow();
     if (!row) return;
     vipOpenedFor = key;
     if (domTickets.some(function (t) { return t.type === 'vip'; })) return;
+    console.log(LOG_PREFIX + 'Opening Ticketmaster\'s VIP Packages row, so the packages are in the list.');
     tm.clickElement(row.element);
   }
 
@@ -240,7 +251,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     const venue = tm.findVenue();
     const pageSort = tm.getPageSort();
     const textPx = tm.measureTicketTextPx();
-    if (!usingApi()) openVipRow(domTickets, qty, pageSort);
+    if (!usingApi()) openVipRow(domTickets, qty, pageSort, status.isComplete);
 
     const serialized = JSON.stringify({
       status,

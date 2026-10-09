@@ -54,6 +54,8 @@ describe('inline mode (the default)', () => {
     const vipButton = document.querySelector('[data-testid="quickpicksList"] button');
     const clicked = vi.fn();
     vipButton.addEventListener('click', clicked);
+    const label = Array.from(document.querySelectorAll('span, div')).find((e) => !e.children.length && /^Loaded \d+ of \d+$/.test(e.textContent.trim()));
+    label.textContent = 'Loaded 84 of 84'; // the list has loaded
     await start({ loadMode: 'scroll' });
 
     expect(clicked).toHaveBeenCalledTimes(1);

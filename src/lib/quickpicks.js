@@ -161,6 +161,16 @@ export function attributesOf(tickets) {
   return Array.from(seen.values()).sort(function (a, b) { return a.label.localeCompare(b.label); });
 }
 
+/** A type of pick with no seat: standing or other general admission ("general-seating", "standing"...). */
+function isGeneralKind(kind) {
+  return /general|standing|admission/.test(kind);
+}
+
+/** Only a resale listing says who is selling it. */
+function hasSellerFields(p) {
+  return ['resaleListingId', 'sellerBusinessType', 'sellerAffiliationType'].some(function (k) { return text(p[k]) !== ''; });
+}
+
 /**
  * One pick from the list response as a ticket, in the shape parseTicketCard produces (so the rest of
  * the extension doesn't care where a ticket came from) plus what only the API has:
@@ -171,14 +181,20 @@ export function pickToTicket(pick, options) {
   const opts = options || {};
   const p = pick && typeof pick === 'object' ? pick : {};
 
-  const section = text(p.section) || text(p.areaName) || 'OTHER';
   const kind = text(p.type).toLowerCase();
-  const name = text(p.name);
+  const rawName = text(p.name);
   const rowText = text(p.row);
   const rank = rowText ? rowRank(rowText) : null;
 
-  const isVip = /package|vip/i.test(name) || /package|vip/.test(kind);
-  const isResale = RESALE_RE.test(name) || /resale/.test(kind) || p.resale === true || p.isResale === true;
+  // Standing (type "general-seating") has a code for its section ("STAND") and the page shows its description
+  // ("STANDING-OVER 14'S ONLY"); a seat's description is only its tier ("NORTH UPPER TIER"), and the page shows the code.
+  const section = (isGeneralKind(kind) && text(p.description)) || text(p.section) || text(p.areaName) || 'OTHER';
+
+  const isVip = /package|vip/i.test(rawName) || /package|vip/.test(kind);
+  // A resale pick has no `name` and says nothing of resale in its `type` ("seat"): it carries a resaleListingId
+  // and who is selling it. (Seen on The O2 Belfast; the page shows these as "Verified Resale Ticket".)
+  const isResale = RESALE_RE.test(rawName) || /resale/.test(kind) || p.resale === true || p.isResale === true || hasSellerFields(p);
+  const name = rawName || (isResale ? 'Verified Resale Ticket' : '');
 
   const price = Number(p.originalPrice);
   const amount = Number.isFinite(price) && price > 0 ? price : 0;

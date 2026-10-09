@@ -58,6 +58,11 @@ async function describeResponse(response) {
   return { statusText: response.statusText || '', headers, body };
 }
 
+/** The requests of a read as one short line: "0:200@0.0 20:200@0.9 ... 160:403@8.4". */
+export function describeRequests(requests) {
+  return (requests || []).map(function (r) { return r.offset + ':' + r.status + '@' + r.at.toFixed(1); }).join(' ');
+}
+
 /** How long a `Retry-After: <seconds>` header asks us to wait, in ms (at most a minute), or undefined. */
 function retryAfterOf(response) {
   try {
@@ -134,6 +139,9 @@ export async function fetchAllPicks(url, options) {
   const aborted = function () { if (signal && signal.aborted) throw new Error('aborted'); };
 
   let slowdown = 1;
+  const startedAt = Date.now();
+  const requestLog = []; // every request this read made: { offset, status, at } (status: 200, 403..., or 'error'), for a failure's diagnosis
+  const record = function (offset, status) { requestLog.push({ offset, status, at: Math.round((Date.now() - startedAt) / 100) / 10 }); };
 
   /** One page, with its retries and its backing off. */
   async function fetchOne(offset) {
@@ -142,9 +150,12 @@ export async function fetchAllPicks(url, options) {
     for (;;) {
       aborted();
       try {
-        return await fetchPage(pageUrl(url, offset), signal);
+        const page = await fetchPage(pageUrl(url, offset), signal);
+        record(offset, 200);
+        return page;
       } catch (err) {
         if (signal && signal.aborted) throw err;
+        record(offset, err && err.status ? err.status : 'error');
         if (isRefusal(err && err.status)) {
           if (offset === 0 || refusals >= refusalDelays.length) throw err;
           const wait = (err && err.retryAfterMs) || refusalDelays[refusals];
@@ -160,65 +171,74 @@ export async function fetchAllPicks(url, options) {
     }
   }
 
-  const first = await fetchOne(0);
-  aborted();
-  const total = first.total;
-  const pageSize = first.picks.length;
-  const pages = new Map([[0, first.picks]]);
+  async function readAll() {
+    const first = await fetchOne(0);
+    aborted();
+    const total = first.total;
+    const pageSize = first.picks.length;
+    const pages = new Map([[0, first.picks]]);
 
-  /** The picks read so far with no gap in them: pages in order from the start. */
-  const contiguous = function () {
-    const picks = [];
-    for (let offset = 0; pages.has(offset); offset += pageSize) picks.push.apply(picks, pages.get(offset));
-    return picks;
-  };
-  const report = function () {
-    if (!onProgress) return;
-    const picks = contiguous();
-    onProgress({ loaded: picks.length, total, picks });
-  };
-  report();
-
-  if (pageSize > 0 && total > pageSize) {
-    const offsets = [];
-    for (let o = pageSize; o < total; o += pageSize) offsets.push(o);
-    let next = 0;
-    let failure = null;
-    const worker = async function () {
-      // Once one page has failed the others stop asking for more: the whole read fails anyway.
-      while (next < offsets.length && !failure) {
-        const offset = offsets[next++];
-        try {
-          const gap = gapMs() * slowdown;
-          if (gap > 0) await sleep(gap, signal);
-          aborted();
-          const page = await fetchOne(offset);
-          aborted();
-          pages.set(offset, page.picks);
-          report();
-        } catch (err) {
-          failure = failure || err;
-          throw err;
-        }
-      }
+    /** The picks read so far with no gap in them: pages in order from the start. */
+    const contiguous = function () {
+      const picks = [];
+      for (let offset = 0; pages.has(offset); offset += pageSize) picks.push.apply(picks, pages.get(offset));
+      return picks;
     };
-    await Promise.all(Array.from({ length: Math.min(concurrency, offsets.length) }, worker));
+    const report = function () {
+      if (!onProgress) return;
+      const picks = contiguous();
+      onProgress({ loaded: picks.length, total, picks });
+    };
+    report();
+
+    if (pageSize > 0 && total > pageSize) {
+      const offsets = [];
+      for (let o = pageSize; o < total; o += pageSize) offsets.push(o);
+      let next = 0;
+      let failure = null;
+      const worker = async function () {
+        // Once one page has failed the others stop asking for more: the whole read fails anyway.
+        while (next < offsets.length && !failure) {
+          const offset = offsets[next++];
+          try {
+            const gap = gapMs() * slowdown;
+            if (gap > 0) await sleep(gap, signal);
+            aborted();
+            const page = await fetchOne(offset);
+            aborted();
+            pages.set(offset, page.picks);
+            report();
+          } catch (err) {
+            failure = failure || err;
+            throw err;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(concurrency, offsets.length) }, worker));
+    }
+
+    const picks = [];
+    const seen = new Set();
+    Array.from(pages.keys()).sort(function (a, b) { return a - b; }).forEach(function (offset) {
+      pages.get(offset).forEach(function (pick) {
+        const id = pick && pick.id != null ? String(pick.id) : null;
+        if (id !== null) {
+          if (seen.has(id)) return;
+          seen.add(id);
+        }
+        picks.push(pick);
+      });
+    });
+    if (picks.length !== total) throw new Error('got ' + picks.length + ' of ' + total + ' tickets');
+    return { picks, total, currency: first.currency || first.currencyCode || '' };
   }
 
-  const picks = [];
-  const seen = new Set();
-  Array.from(pages.keys()).sort(function (a, b) { return a - b; }).forEach(function (offset) {
-    pages.get(offset).forEach(function (pick) {
-      const id = pick && pick.id != null ? String(pick.id) : null;
-      if (id !== null) {
-        if (seen.has(id)) return;
-        seen.add(id);
-      }
-      picks.push(pick);
-    });
-  });
-  if (picks.length !== total) throw new Error('got ' + picks.length + ' of ' + total + ' tickets');
-  return { picks, total, currency: first.currency || first.currencyCode || '' };
+  try {
+    return await readAll();
+  } catch (err) {
+    if (err && typeof err === 'object') err.requests = requestLog; // what was asked, and what came back: for the diagnosis
+    throw err;
+  }
 }
 
 /**
@@ -288,7 +308,7 @@ export function createApiSource({ onChange, deps } = {}) {
         message += ' (not asking again until ' + formatClock(until) + ')';
       }
       // What the refusal said, as text so it can be copied from the console.
-      console.warn(LOG_PREFIX + 'Could not read the ticket list from the API: ' + message + (err && err.detail ? ' ' + JSON.stringify(err.detail) : ''));
+      console.warn(LOG_PREFIX + 'Could not read the ticket list from the API: ' + message + (err && err.detail ? ' ' + JSON.stringify(err.detail) : '') + (err && err.requests ? ' | requests (offset:status@seconds): ' + describeRequests(err.requests) : ''));
       set({ phase: 'failed', error: message, partial: [] });
     }
   }

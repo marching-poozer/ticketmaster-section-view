@@ -240,6 +240,7 @@ describe('once the API has been read', () => {
     document.body.insertAdjacentHTML('beforeend', '<div data-testid="quickpicksList"><div><button><svg class="StarCircledFilledIcon___X"></svg><span><span>VIP Packages</span><span>€100.00 each</span></span><span>Show Tickets</span></button></div></div>');
     const pressed = vi.fn();
     document.querySelector('[data-testid="quickpicksList"] button').addEventListener('click', pressed);
+    Array.from(document.querySelectorAll('span, div')).filter((e) => !e.children.length && /^Loaded \d+ of \d+$/.test(e.textContent.trim())).forEach((e) => { e.textContent = 'Loaded 84 of 84'; });
     const api = fakeApi({ phase: 'loading', loaded: 20, total: 84 });
     const { reader } = setup(api);
     vi.spyOn(console, 'warn').mockImplementation(() => {});

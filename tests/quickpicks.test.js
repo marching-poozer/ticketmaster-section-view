@@ -378,3 +378,77 @@ describe('explaining a disagreement', () => {
     expect(nearMisses(undefined, tickets, picks)).toEqual([]);
   });
 });
+
+describe('the picks The O2 Belfast sent that the check could not match (resale, standing)', () => {
+  const real = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/quickpicks-resale-standing.json'), 'utf8'));
+  const [resale, standing, westU1, westU7] = real.picks;
+
+  it('a resale pick has no name and says nothing of resale in its type: it is told by who sells it', () => {
+    const t = pickToTicket(resale);
+    expect(t.isResale).toBe(true);
+    expect(t.ticketType).toBe('Verified Resale Ticket'); // what the page calls it
+    expect(t.packageName).toBe('');
+    expect(t).toMatchObject({ section: 'NTHU3', rowName: 'U', price: 82.6, seat: '40', type: 'standard' });
+    expect(t.title).toBe('Row U • Seat 40');
+    expect(t.text).toContain('Verified Resale Ticket');
+  });
+
+  it('any one of the seller fields marks a resale', () => {
+    const base = { id: '1', type: 'seat', section: 'A', row: '1', originalPrice: 50 };
+    expect(pickToTicket(base).isResale).toBe(false);
+    expect(pickToTicket({ ...base, resaleListingId: 'x1' }).isResale).toBe(true);
+    expect(pickToTicket({ ...base, sellerBusinessType: 'private' }).isResale).toBe(true);
+    expect(pickToTicket({ ...base, sellerAffiliationType: 'unaffiliated' }).isResale).toBe(true);
+    expect(pickToTicket({ ...base, resaleListingId: '', sellerBusinessType: null }).isResale).toBe(false); // empty means none
+  });
+
+  it('a primary pick keeps the name it came with', () => {
+    expect(pickToTicket(standing).ticketType).toBe('Full Price Ticket');
+    expect(pickToTicket(standing).isResale).toBe(false);
+    expect(pickToTicket({ id: '2', type: 'seat', section: 'A', row: '1', originalPrice: 5 }).ticketType).toBe('');
+  });
+
+  it('standing is shown under its description, as the page does (the section is only a code)', () => {
+    const t = pickToTicket(standing);
+    expect(t.section).toBe("STANDING-OVER 14'S ONLY");
+    expect(t.rowName).toBeNull();
+    expect(t.rowLabel).toBe('Standing');
+    expect(t.row).toBe(9999); // STANDING_ROW
+    expect(t.type).toBe('standard');
+    expect(t.price).toBe(83);
+  });
+
+  it('a seat\'s description is only its tier: the page shows the section code', () => {
+    expect(pickToTicket(westU1).section).toBe('WESTU1');
+    expect(pickToTicket(resale).section).toBe('NTHU3');
+  });
+
+  it('other kinds of standing are named by their description too', () => {
+    ['standing', 'general-admission', 'general-seating'].forEach((type) => {
+      expect(pickToTicket({ id: 'g', type, section: 'GA1', description: 'PIT', originalPrice: 40 }).section).toBe('PIT');
+    });
+    expect(pickToTicket({ id: 'g', type: 'standing', section: 'GA1', originalPrice: 40 }).section).toBe('GA1'); // no description: the code
+  });
+
+  it('these four now agree with the cards the page shows for them', () => {
+    const cards = [
+      makeCard({ section: 'NTHU3', row: 'U', seat: '40', price: 82.6, resale: true }),
+      makeCard({ section: "STANDING-OVER 14'S ONLY", price: 83 }),
+      makeCard({ section: 'WESTU1', row: 'U', seat: '11', price: 86.14, resale: true }),
+      makeCard({ section: 'WESTU7', row: 'Y', seat: '135', price: 86.14, resale: true }),
+    ];
+    cards.forEach((c) => document.body.append(c));
+    const domTickets = cards.map((c) => parseTicketCard(c));
+    const result = crossCheck(domTickets, picksToTickets(real, { currency: '€' }), 1);
+    expect(result.missing).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.matched).toBe(4);
+  });
+
+  it('and the same pick as a resale is not mistaken for a primary ticket at the same price', () => {
+    const primaryCard = parseTicketCard(makeCard({ section: 'NTHU3', row: 'U', price: 82.6 }));
+    const result = crossCheck([primaryCard], picksToTickets({ picks: [resale] }), 1);
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual(['NTHU3|U|82.60|primary']);
+  });
+});

@@ -258,8 +258,14 @@ describe('auto-scroll', () => {
 });
 
 describe('the VIP packages row (scrolling the cards)', () => {
-  const loadRealPane = () => {
+  const loadRealPane = ({ loaded = true } = {}) => {
     document.body.innerHTML = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/quickpicks-pane.html'), 'utf8');
+    if (loaded) finishLoading();
+  };
+  /** The page's own "Loaded 20 of 84" footer says everything has loaded. */
+  const finishLoading = () => {
+    const label = Array.from(document.querySelectorAll('span')).find((e) => /^Loaded \d+ of \d+$/.test(e.textContent.trim()));
+    label.textContent = 'Loaded 84 of 84';
   };
   const vipButton = () => document.querySelector('[data-testid="quickpicksList"] button');
   const watchVip = () => {
@@ -274,6 +280,48 @@ describe('the VIP packages row (scrolling the cards)', () => {
     const { reader } = setup();
     reader.start();
     expect(pressed).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits until the list has loaded: opening it re-renders the list, which is no time for that mid-scroll', async () => {
+    vi.useFakeTimers();
+    loadRealPane({ loaded: false }); // "Loaded 20 of 84"
+    const pressed = watchVip();
+    const { reader } = setup();
+    reader.start();
+    await settle(3000);
+    expect(pressed).not.toHaveBeenCalled();
+
+    finishLoading();
+    document.body.append(document.createElement('i'));
+    await settle(400);
+    expect(pressed).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens it anyway after a while if the page never says it has loaded', async () => {
+    vi.useFakeTimers();
+    loadRealPane({ loaded: false });
+    const pressed = watchVip();
+    const { reader } = setup();
+    reader.start();
+    await settle(19000);
+    expect(pressed).not.toHaveBeenCalled();
+    document.body.append(document.createElement('i'));
+    await settle(2500);
+    expect(pressed).toHaveBeenCalledTimes(1);
+  });
+
+  it('says in the console when it opens the row, and how far the scroll loop has got', async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    loadRealPane({ loaded: false });
+    const { reader } = setup();
+    reader.start();
+    await settle(1300);
+    expect(log.mock.calls.map((c) => c[0]).filter((l) => /Scrolling the list: 20 of 84 loaded/.test(l))).toHaveLength(1); // once, not at every tick
+    finishLoading();
+    document.body.append(document.createElement('i'));
+    await settle(1300);
+    expect(log.mock.calls.map((c) => c[0]).some((l) => /Scrolling the list: 84 of 84/.test(l) || /Opening Ticketmaster's VIP Packages row/.test(l))).toBe(true);
   });
 
   it('does not press it again on later looks at the page: that would close it again', async () => {
@@ -320,6 +368,7 @@ describe('the VIP packages row (scrolling the cards)', () => {
 
   it('finds the row when it appears after the first look, even if nothing else changed', async () => {
     vi.useFakeTimers();
+    addLoadedLabel(3, 3);
     sampleCards();
     const { reader } = setup();
     reader.start();
