@@ -156,6 +156,21 @@ export function findVipRow() {
   return { element: button, title, range };
 }
 
+/** Set on the list's scroller by the inline host while it holds it locked (overflow: hidden), so it is still known as the scroller. */
+export const SCROLLER_ATTR = 'data-tmsv-scroller';
+
+function scrollsByItself(el) {
+  const overflowY = window.getComputedStyle(el).getPropertyValue('overflow-y');
+  return overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay' || el.hasAttribute(SCROLLER_ATTR);
+}
+
+/**
+ * What to scroll to load more of the list: the list's own scrollers, meaning the ancestors of its cards that
+ * scroll by themselves (overflow auto / scroll, or the one the inline host has locked). Never the others: an
+ * `overflow: hidden` wrapper with a taller map in it can be scrolled from script, which shoves the whole page up
+ * (and the document itself, taller than the window, goes down to its footer): the page went white and redrew
+ * on every step of the loop. The document is the scroller only if nothing else is.
+ */
 export function findScrollContainers() {
   const found = new Set();
 
@@ -165,48 +180,45 @@ export function findScrollContainers() {
   });
 
   const firstCard = document.querySelector(CARD_SELECTOR);
+  let scrollers = 0;
   if (firstCard) {
     let parent = firstCard.parentElement;
-    while (parent && parent !== document.body) {
-      const overflowY = window.getComputedStyle(parent).getPropertyValue('overflow-y');
-      if (overflowY === 'auto' || overflowY === 'scroll' || parent.scrollHeight > parent.clientHeight) {
+    while (parent && parent !== document.body && parent !== document.documentElement) {
+      if (scrollsByItself(parent)) {
         found.add(parent);
+        scrollers++;
       }
       parent = parent.parentElement;
     }
   }
 
-  if (document.scrollingElement) found.add(document.scrollingElement);
+  if (scrollers === 0) found.add(document.scrollingElement || document.documentElement);
 
   return Array.from(found);
 }
 
+/** The page itself (not an element in it) is what scrolls. */
+function isDocumentScroller(container) {
+  return container === document.scrollingElement || container === document.documentElement || container === document.body;
+}
+
 export function scrollToTopAllContainers() {
   console.log(LOG_PREFIX + 'Resetting scroll to top...');
-  const firstCard = document.querySelector(CARD_SELECTOR);
-
-  if (firstCard && typeof firstCard.scrollIntoView === 'function') {
-    firstCard.scrollIntoView({ behavior: 'instant', block: 'start' });
-  }
 
   findScrollContainers().forEach(function (container) {
     container.scrollTop = 0;
+    if (isDocumentScroller(container)) window.scrollTo(0, 0);
   });
-
-  window.scrollTo(0, 0);
 }
 
-/** One step of the lazy-load scroll: push every plausible scroller to the bottom. */
+/** One step of the lazy-load scroll: push the list's scroller(s) to the bottom, and nothing else. */
 export function scrollToLoadMore() {
-  const cards = getCards();
-  const lastCard = cards.length > 0 ? cards[cards.length - 1] : null;
-
-  if (lastCard && typeof lastCard.scrollIntoView === 'function') {
-    lastCard.scrollIntoView({ behavior: 'instant', block: 'end' });
-  }
-
   findScrollContainers().forEach(function (container) {
-    container.scrollTop = container.scrollHeight;
+    if (isDocumentScroller(container)) {
+      window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
 
     try {
       container.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 2000, view: window }));
@@ -214,8 +226,6 @@ export function scrollToLoadMore() {
       // WheelEvent construction isn't essential to loading more tickets.
     }
   });
-
-  window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
 }
 
 export function getActiveQuantity() {

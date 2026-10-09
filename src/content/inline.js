@@ -37,7 +37,7 @@
 // #main-content) are Ticketmaster's; the hashed class names are not relied on.
 import { h } from '../lib/dom.js';
 import { VIEW_CSS } from './styles.js';
-import { findHeaderBlocks } from './tm-page.js';
+import { SCROLLER_ATTR, findHeaderBlocks } from './tm-page.js';
 import { createViewSwitch, VIEW_SECTION, VIEW_TICKETS } from './view-switch.js';
 
 const HOST_ID = 'tmsv-inline-host';
@@ -244,6 +244,8 @@ export function createInline(app, { onAvailability } = {}) {
       };
       heldScroller = scroller;
       scroller.style.setProperty('scrollbar-gutter', 'stable');
+      // Locked, it no longer looks like a scroller (overflow: hidden): this is how the page reader still knows it is the list's.
+      scroller.setAttribute(SCROLLER_ATTR, '');
     }
     if (locked) heldScroller.style.setProperty('overflow-y', 'hidden');
     else if (heldPrev.overflowY) heldScroller.style.setProperty('overflow-y', heldPrev.overflowY);
@@ -252,6 +254,7 @@ export function createInline(app, { onAvailability } = {}) {
 
   function releaseScroller() {
     if (!heldScroller) return;
+    heldScroller.removeAttribute(SCROLLER_ATTR);
     ['overflow-y', 'scrollbar-gutter'].forEach(function (prop) {
       const prev = prop === 'overflow-y' ? heldPrev.overflowY : heldPrev.gutter;
       if (prev) heldScroller.style.setProperty(prop, prev);

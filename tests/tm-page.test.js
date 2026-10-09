@@ -1,6 +1,8 @@
 import {
+  SCROLLER_ATTR,
   clickElement,
   findHeaderBlocks,
+  findScrollContainers,
   findVenue,
   findVipRow,
   getPageSort,
@@ -115,34 +117,100 @@ describe('clickElement', () => {
 });
 
 describe('scrolling', () => {
-  it('scrollToLoadMore pushes the last card, known containers and the window to the bottom', () => {
+  /**
+   * The page the way Ticketmaster has it (and the O2's, where it went wrong): the list's own scroller (overflow-y: auto)
+   * inside a wrapper that is `overflow: hidden` but has more in it than fits (the map), inside a document taller than
+   * the window. jsdom has no layout, so the heights are given.
+   */
+  function pageWithScroller({ scrollerStyle = 'overflow-y: auto' } = {}) {
+    const wrapper = document.createElement('div');
+    wrapper.id = 'wrapper';
+    wrapper.style.cssText = 'overflow-y: hidden';
+    const scroller = document.createElement('div');
+    scroller.id = 'scroller';
+    scroller.style.cssText = scrollerStyle;
     const list = document.createElement('div');
-    list.id = 'quickpicks-list';
-    document.body.append(list);
+    list.setAttribute('data-testid', 'quickpicksList');
+    scroller.append(list);
+    wrapper.append(scroller);
+    document.body.append(wrapper);
     const cards = addCards({ section: 'A', row: 1 }, { section: 'A', row: 2 });
-    Object.defineProperty(list, 'scrollHeight', { value: 900, configurable: true });
+    cards.forEach((c) => list.append(c));
+    Object.defineProperty(scroller, 'scrollHeight', { value: 2000, configurable: true });
+    Object.defineProperty(scroller, 'clientHeight', { value: 700, configurable: true });
+    Object.defineProperty(wrapper, 'scrollHeight', { value: 1300, configurable: true }); // a map taller than the wrapper
+    Object.defineProperty(wrapper, 'clientHeight', { value: 700, configurable: true });
+    Object.defineProperty(document.body, 'scrollHeight', { value: 2100, configurable: true });
+    return { wrapper, scroller, list, cards };
+  }
+
+  it('scrollToLoadMore pushes the list\'s own scroller to the bottom, and wakes it with a wheel event', () => {
+    const { scroller } = pageWithScroller();
     const wheel = vi.fn();
-    list.addEventListener('wheel', wheel);
+    scroller.addEventListener('wheel', wheel);
 
     scrollToLoadMore();
 
-    expect(cards[1].scrollIntoView).toHaveBeenCalledWith({ behavior: 'instant', block: 'end' });
-    expect(list.scrollTop).toBe(900);
-    expect(wheel).toHaveBeenCalledTimes(1);
-    expect(window.scrollTo).toHaveBeenCalled();
+    expect(scroller.scrollTop).toBe(2000);
+    expect(wheel).toHaveBeenCalled();
   });
 
-  it('scrollToTopAllContainers resets the first card, containers and window', () => {
-    const list = document.createElement('div');
-    list.id = 'quickpicks-list';
-    list.scrollTop = 500;
-    document.body.append(list);
-    const [first] = addCards({ section: 'A', row: 1 });
+  it('scrollToLoadMore moves nothing else: not an overflow:hidden wrapper, not the window, not the cards into view', () => {
+    // The page went white and redrew on every step: the wrapper (with the map in it) was scrolled up and the window down to the footer.
+    const { wrapper, cards } = pageWithScroller();
+
+    scrollToLoadMore();
+
+    expect(wrapper.scrollTop).toBe(0);
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    cards.forEach((c) => expect(c.scrollIntoView).not.toHaveBeenCalled());
+    expect(document.documentElement.scrollTop).toBe(0);
+  });
+
+  it('knows a scroller the inline host has locked (overflow: hidden) by its marker', () => {
+    const { wrapper, scroller } = pageWithScroller({ scrollerStyle: 'overflow-y: hidden' });
+    scroller.setAttribute(SCROLLER_ATTR, '');
+
+    scrollToLoadMore();
+
+    expect(scroller.scrollTop).toBe(2000);
+    expect(wrapper.scrollTop).toBe(0);
+    expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('finds the scrollers an ancestor chain has: only the ones that scroll by themselves', () => {
+    const { scroller } = pageWithScroller();
+    const containers = findScrollContainers();
+    expect(containers).toContain(scroller);
+    expect(containers.map((c) => c.id)).not.toContain('wrapper');
+    expect(containers).not.toContain(document.documentElement);
+    expect(containers).not.toContain(document.scrollingElement);
+  });
+
+  it('scrolls the page itself only when nothing else in it scrolls', () => {
+    addCards({ section: 'A', row: 1 });
+    Object.defineProperty(document.body, 'scrollHeight', { value: 4321, configurable: true });
+
+    scrollToLoadMore();
+
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 4321);
+  });
+
+  it('scrollToTopAllContainers resets the list\'s scroller, and nothing else', () => {
+    const { wrapper, scroller, cards } = pageWithScroller();
+    scroller.scrollTop = 500;
+    wrapper.scrollTop = 0;
 
     scrollToTopAllContainers();
 
-    expect(first.scrollIntoView).toHaveBeenCalledWith({ behavior: 'instant', block: 'start' });
-    expect(list.scrollTop).toBe(0);
+    expect(scroller.scrollTop).toBe(0);
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    cards.forEach((c) => expect(c.scrollIntoView).not.toHaveBeenCalled());
+  });
+
+  it('scrollToTopAllContainers puts the page itself back to the top when it is the scroller', () => {
+    addCards({ section: 'A', row: 1 });
+    scrollToTopAllContainers();
     expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
   });
 });
