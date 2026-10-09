@@ -1,5 +1,7 @@
 import { createApiSource, fetchAllPicks, fetchListPage } from '../src/content/api-source.js';
 import { createCapture } from '../src/content/capture.js';
+import { API_PAUSE_KEY, API_PAUSE_MS } from '../src/lib/api-pause.js';
+import { peekStorage, seedStorage } from './mocks/chrome.js';
 
 const URL1 = 'https://www.ticketmaster.ie/api/quickpicks/EVT/list?sort=price&offset=40&qty=2&primary=true&resale=true&tids=A%2CB';
 const offsetOf = (url) => Number(new URL(url).searchParams.get('offset'));
@@ -69,6 +71,17 @@ describe('fetchAllPicks', () => {
     expect(peak).toBeLessThanOrEqual(3);
   });
 
+  it('stops asking for more pages once one has failed', async () => {
+    const api = fakeApi(400, 10);
+    const fetchPage = vi.fn(async (url) => {
+      if (offsetOf(url) === 20) throw new Error('HTTP 403');
+      return api.fetchPage(url);
+    });
+    await expect(fetchAllPicks(URL1, { fetchPage, concurrency: 2 })).rejects.toThrow('HTTP 403');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(fetchPage.mock.calls.length).toBeLessThan(6); // not the 40 pages of the whole list
+  });
+
   it('reports progress', async () => {
     const api = fakeApi(60, 20);
     const seen = [];
@@ -114,6 +127,26 @@ describe('fetchListPage', () => {
   it('returns the body', async () => {
     reply({ total: 1, picks: [{ id: 1 }] });
     expect(await fetchListPage('https://x/api')).toEqual({ total: 1, picks: [{ id: 1 }] });
+  });
+
+  it('an error status carries the status and what the response said (headers worth knowing, the body as text)', async () => {
+    const headers = new Map([['server', 'AkamaiGHost'], ['content-type', 'text/html'], ['set-cookie', 'secret=1'], ['x-reference-error', '18.abc']]);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false, status: 403, statusText: 'Forbidden', headers,
+      text: async () => '<html><body><h1>Access Denied</h1>\n<p>Reference #18.abc.123</p></body></html>',
+    });
+    const err = await fetchListPage('https://x/api').catch((e) => e);
+    expect(err.message).toBe('HTTP 403');
+    expect(err.status).toBe(403);
+    expect(err.detail.statusText).toBe('Forbidden');
+    expect(err.detail.body).toBe('Access Denied Reference #18.abc.123');
+    expect(err.detail.headers).toEqual(['server: AkamaiGHost', 'content-type: text/html', 'x-reference-error: 18.abc']);
+  });
+
+  it('keeps only the start of a long body', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 403, headers: new Map(), text: async () => 'x'.repeat(5000) });
+    const err = await fetchListPage('https://x/api').catch((e) => e);
+    expect(err.detail.body).toHaveLength(300);
   });
 
   it('throws on an error status, and on a body that is not a list', async () => {
@@ -243,20 +276,78 @@ describe('createApiSource', () => {
     expect(calls).toBe(3);
   });
 
-  it('fails, saying why, and does not hammer a list that failed', async () => {
+  /** A source whose fetchPage answers `answer(url)`, fed one list request; resolves when it has settled. */
+  async function refused({ status = 403, pause, fetchPage } = {}) {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const fetchPage = vi.fn(async () => { throw new Error('HTTP 403'); });
+    const fetch = fetchPage || vi.fn(async () => { throw Object.assign(new Error('HTTP ' + status), { status, detail: { statusText: 'Forbidden', headers: ['server: AkamaiGHost'], body: 'Access Denied' } }); });
     let obs;
     const capture = createCapture({ Observer: class { constructor(cb) { this.cb = cb; obs = this; } observe() {} disconnect() {} } });
-    const source = createApiSource({ deps: { capture, fetchPage, retryDelaysMs: [1] } });
+    const source = createApiSource({ deps: Object.assign({ capture, fetchPage: fetch, retryDelaysMs: [1, 1] }, pause ? { pause } : {}) });
     source.start();
     obs.cb({ getEntries: () => [{ name: URL1 }] });
     for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 2));
-    expect(source.state()).toMatchObject({ phase: 'failed', error: 'HTTP 403' });
-    const calls = fetchPage.mock.calls.length;
+    return { source, fetch, obs };
+  }
+
+  it('fails, saying why, and does not hammer a list that failed', async () => {
+    const { source, fetch, obs } = await refused({ status: 500 });
+    expect(source.state()).toMatchObject({ phase: 'failed', error: 'HTTP 500' });
+    const calls = fetch.mock.calls.length;
     obs.cb({ getEntries: () => [{ name: URL1.replace('offset=40', 'offset=60') }] }); // the same list again
     await new Promise((r) => setTimeout(r, 10));
-    expect(fetchPage.mock.calls.length).toBe(calls);
+    expect(fetch.mock.calls.length).toBe(calls);
+  });
+
+  it.each([401, 403, 429])('asks once, not again, when Ticketmaster refuses with HTTP %i', async (status) => {
+    const { source, fetch } = await refused({ status });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(source.state()).toMatchObject({ phase: 'failed' });
+    expect(source.state().error).toMatch(new RegExp('^HTTP ' + status + ' \\(not asking again until \\d\\d:\\d\\d\\)$'));
+  });
+
+  it('still retries an error that is not a refusal (a 503)', async () => {
+    const { fetch } = await refused({ status: 503 });
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('puts what the refusal said in the console, as text', async () => {
+    await refused();
+    const line = console.warn.mock.calls.map((c) => c.join(' ')).find((l) => l.includes('Could not read'));
+    expect(line).toContain('HTTP 403');
+    expect(line).toContain('AkamaiGHost');
+    expect(line).toContain('Access Denied');
+  });
+
+  it('remembers a refusal for a quarter of an hour, in storage', async () => {
+    const before = Date.now();
+    await refused();
+    const until = peekStorage(API_PAUSE_KEY);
+    expect(until).toBeGreaterThanOrEqual(before + API_PAUSE_MS);
+    expect(until).toBeLessThanOrEqual(Date.now() + API_PAUSE_MS);
+  });
+
+  it('does not ask at all while paused (a reload of the page right after a refusal)', async () => {
+    seedStorage(API_PAUSE_KEY, Date.now() + 5 * 60 * 1000);
+    const { source, fetch } = await refused();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(source.state().phase).toBe('failed');
+    expect(source.state().error).toMatch(/^paused until \d\d:\d\d, after Ticketmaster refused/);
+  });
+
+  it('asks again once the pause is over, and a good answer carries on as normal', async () => {
+    seedStorage(API_PAUSE_KEY, Date.now() - 1000);
+    const api = fakeApi(5, 20);
+    const { source, fetch } = await refused({ fetchPage: vi.fn(api.fetchPage) });
+    expect(fetch).toHaveBeenCalled();
+    expect(source.state().phase).toBe('ready');
+  });
+
+  it('takes the pause from `deps.pause` when given one, and sets it on a refusal', async () => {
+    const pause = { get: vi.fn(async () => 0), set: vi.fn(async () => {}) };
+    await refused({ pause });
+    expect(pause.get).toHaveBeenCalled();
+    expect(pause.set).toHaveBeenCalledTimes(1);
+    expect(pause.set.mock.calls[0][0]).toBeGreaterThan(Date.now());
   });
 
   it('does nothing when stopped, and can be started again', async () => {

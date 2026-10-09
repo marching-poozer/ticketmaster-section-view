@@ -6,20 +6,69 @@
 // This only fetches and converts. Whether to trust the result is the page reader's call
 // (it checks the tickets against the cards on the page), and so is what to do when this
 // fails: carry on by scrolling, as before.
+import { API_PAUSE_KEY, formatClock, isRefusal, pauseRemaining, pauseUntil } from '../lib/api-pause.js';
 import { LOG_PREFIX } from '../lib/constants.js';
 import { listQuantity, listSignature, pageUrl, picksToTickets } from '../lib/quickpicks.js';
 import { capture as defaultCapture } from './capture.js';
 
-const CONCURRENCY = 4;
+// The page itself asks for one page at a time; a burst of parallel requests is what a bot defence notices.
+const CONCURRENCY = 2;
+
+// The response headers worth showing when a request is refused (never cookies, which a page can't read anyway).
+const DETAIL_HEADER = /^(content-type|server|retry-after|www-authenticate|akamai-[a-z0-9-]+|x-[a-z0-9-]*(error|reference|request|akamai|block)[a-z0-9-]*)$/i;
 
 function sleep(ms) {
   return new Promise(function (resolve) { setTimeout(resolve, ms); });
 }
 
-/** GET a list page as JSON, same-origin with the page's cookies. Throws on anything but a good answer. */
+/** What a refused request said, for the console: { statusText, headers: ['server: AkamaiGHost'], body: first 300 characters as text }. */
+async function describeResponse(response) {
+  const headers = [];
+  try {
+    response.headers.forEach(function (value, name) {
+      if (DETAIL_HEADER.test(name) && headers.length < 10) headers.push(name + ': ' + String(value).slice(0, 100));
+    });
+  } catch (err) { /* nothing to show */ }
+  let body = '';
+  try {
+    body = String(await response.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+  } catch (err) { /* nothing to show */ }
+  return { statusText: response.statusText || '', headers, body };
+}
+
+/** The pause after a refusal is remembered in storage, so reloading the page doesn't ask again at once. */
+function storagePause() {
+  let memory = 0;
+  return {
+    async get() {
+      try {
+        const stored = await chrome.storage.local.get(API_PAUSE_KEY);
+        return Number(stored[API_PAUSE_KEY]) || memory;
+      } catch (err) {
+        return memory;
+      }
+    },
+    async set(until) {
+      memory = until;
+      try {
+        await chrome.storage.local.set({ [API_PAUSE_KEY]: until });
+      } catch (err) { /* kept in memory for this page */ }
+    },
+  };
+}
+
+/**
+ * GET a list page as JSON, same-origin with the page's cookies. Throws on anything but a good answer;
+ * an error status is an Error with `status` and `detail` (what the response said: see describeResponse).
+ */
 export async function fetchListPage(url, signal) {
   const response = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal });
-  if (!response.ok) throw new Error('HTTP ' + response.status);
+  if (!response.ok) {
+    const err = new Error('HTTP ' + response.status);
+    err.status = response.status;
+    err.detail = await describeResponse(response);
+    throw err;
+  }
   const body = await response.json();
   if (!body || !Array.isArray(body.picks) || !Number.isInteger(body.total) || body.total < 0) {
     throw new Error('unexpected response (no picks / total)');
@@ -48,14 +97,21 @@ export async function fetchAllPicks(url, { fetchPage = fetchListPage, signal, on
     const offsets = [];
     for (let o = pageSize; o < total; o += pageSize) offsets.push(o);
     let next = 0;
+    let failure = null;
     const worker = async function () {
-      while (next < offsets.length) {
+      // Once one page has failed the others stop asking for more: the whole read fails anyway.
+      while (next < offsets.length && !failure) {
         const offset = offsets[next++];
-        aborted();
-        const page = await fetchPage(pageUrl(url, offset), signal);
-        aborted();
-        pages.set(offset, page.picks);
-        if (onProgress) onProgress({ loaded: loaded(), total });
+        try {
+          aborted();
+          const page = await fetchPage(pageUrl(url, offset), signal);
+          aborted();
+          pages.set(offset, page.picks);
+          if (onProgress) onProgress({ loaded: loaded(), total });
+        } catch (err) {
+          failure = failure || err;
+          throw err;
+        }
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, offsets.length) }, worker));
@@ -90,6 +146,7 @@ export function createApiSource({ onChange, deps } = {}) {
   const capture = d.capture || defaultCapture;
   const fetchPage = d.fetchPage || fetchListPage;
   const retryDelays = d.retryDelaysMs || [400, 1500];
+  const pause = d.pause || storagePause();
 
   let running = false;
   let unsubscribe = null;
@@ -102,7 +159,7 @@ export function createApiSource({ onChange, deps } = {}) {
     if (onChange) onChange();
   }
 
-  /** Fetch with a couple of retries: the first request can race the page's own. */
+  /** Fetch with a couple of retries: the first request can race the page's own. Not after a refusal. */
   async function fetchWithRetry(url, signal, onProgress) {
     let lastError;
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
@@ -110,6 +167,7 @@ export function createApiSource({ onChange, deps } = {}) {
         return await fetchAllPicks(url, { fetchPage, signal, onProgress });
       } catch (err) {
         if (signal.aborted) throw err;
+        if (isRefusal(err && err.status)) throw err; // a "no" isn't a hiccup: asking again only makes it worse
         lastError = err;
         if (attempt < retryDelays.length) await sleep(retryDelays[attempt]);
       }
@@ -121,6 +179,17 @@ export function createApiSource({ onChange, deps } = {}) {
     if (controller) controller.abort();
     const mine = (controller = new AbortController());
     set(Object.assign(fresh(), { phase: 'loading', signature, qty: listQuantity(url) }));
+
+    // Ticketmaster said no a short while ago: don't ask at all (the page reader scrolls instead).
+    const pausedUntil = await pause.get();
+    if (mine.signal.aborted) return;
+    if (pauseRemaining(pausedUntil, Date.now()) > 0) {
+      const why = 'paused until ' + formatClock(pausedUntil) + ', after Ticketmaster refused the list request';
+      console.warn(LOG_PREFIX + 'Not asking the ticket list API: ' + why + '.');
+      set({ phase: 'failed', error: why });
+      return;
+    }
+
     try {
       const result = await fetchWithRetry(url, mine.signal, function (p) {
         if (!mine.signal.aborted) set({ loaded: p.loaded, total: p.total });
@@ -130,8 +199,15 @@ export function createApiSource({ onChange, deps } = {}) {
       set({ phase: 'ready', loaded: tickets.length, total: result.total, tickets, picks: result.picks, currency: result.currency });
     } catch (err) {
       if (mine.signal.aborted) return;
-      console.warn(LOG_PREFIX + 'Could not read the ticket list from the API:', err && err.message ? err.message : err);
-      set({ phase: 'failed', error: err && err.message ? err.message : String(err) });
+      let message = err && err.message ? err.message : String(err);
+      if (err && isRefusal(err.status)) {
+        const until = pauseUntil(Date.now());
+        await pause.set(until);
+        message += ' (not asking again until ' + formatClock(until) + ')';
+      }
+      // What the refusal said, as text so it can be copied from the console.
+      console.warn(LOG_PREFIX + 'Could not read the ticket list from the API: ' + message + (err && err.detail ? ' ' + JSON.stringify(err.detail) : ''));
+      set({ phase: 'failed', error: message });
     }
   }
 
