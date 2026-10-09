@@ -23,7 +23,7 @@ function fakeApp() {
 }
 
 function snapshot(status) {
-  return { status, qty: 2, tickets: [], vip: null };
+  return { status, qty: 2, tickets: [] };
 }
 const LOADING = { loaded: 20, total: 84, isComplete: false };
 const DONE = { loaded: 84, total: 84, isComplete: true };

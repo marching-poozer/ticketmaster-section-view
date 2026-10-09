@@ -172,18 +172,6 @@ export const VIEW_CSS = `
 .sv.flow { height: auto; }
 .sv.flow .sv-content { flex: none; min-height: auto; overflow: visible; }
 
-/* ---- VIP packages row ---- */
-.vip-row {
-  flex: none; display: flex; justify-content: space-between; align-items: center; gap: ${u(8)};
-  padding: ${u(8)} ${u(12)}; background: #fff8e1; border-bottom: 1px solid #f3e3b0;
-  font-size: ${u(12)}; font-weight: 700; color: #7a5a00;
-}
-.vip-btn {
-  flex: none; background: #ffffff; color: #7a5a00; border: 1px solid #d9b95b; border-radius: ${u(12)};
-  padding: ${u(3)} ${u(12)}; font-size: ${u(11)}; font-weight: 700; cursor: pointer;
-}
-.vip-btn:hover { background: #fff3c4; }
-
 /* ---- section list ---- */
 .sv-content {
   flex: 1; min-height: 0; overflow-y: auto; padding: ${u(12)};

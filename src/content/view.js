@@ -146,7 +146,7 @@ function sectionNode(group, sort, expanded, onTicketClick) {
 
 /**
  * `handlers`: onSearch(text), onSeatSelect(key), onQualitySelect(key), onPriceSelect(key), onBadgeCycle(key), onSort('row'|'price'),
- * onQuantityStep(delta), onToggleVip(), onShowOriginal(), onOpenSettings(),
+ * onQuantityStep(delta), onShowOriginal(), onOpenSettings(),
  * onSaveVenue({ firstRows, frontRows, badges }), onResetVenue().
  */
 export function createView(handlers, version) {
@@ -326,12 +326,6 @@ export function createView(handlers, version) {
 
   const content = h('div', { class: 'sv-content' });
 
-  // "VIP Packages — Show": presses Ticketmaster's own button on its VIP summary row.
-  const vipLabel = h('span', { class: 'vip-label' });
-  const vipButton = h('button', { type: 'button', class: 'vip-btn', on: { click: function () { handlers.onToggleVip(); } } });
-  const vipRow = h('div', { class: 'vip-row', hidden: true }, vipLabel, vipButton);
-  vipRow.hidden = true;
-
   // Only drawn when the view replaces Ticketmaster's list (see setOriginalLink).
   const originalRow = h(
     'div',
@@ -469,7 +463,6 @@ export function createView(handlers, version) {
         controlBox
       )
     ),
-    vipRow,
     content
   );
 
@@ -599,14 +592,6 @@ export function createView(handlers, version) {
       frontInput.value = config.frontRows === null ? '' : String(config.frontRows);
       frontInput.placeholder = String(defaultFront);
       badgeEditor.setBadges(config.badges);
-    },
-
-    /** Show or hide the VIP row. `vip` is { title, range, expanded } or null. */
-    renderVip(vip) {
-      vipRow.hidden = !vip;
-      if (!vip) return;
-      vipLabel.textContent = '★ ' + vip.title + (vip.range ? ' · ' + vip.range : '');
-      vipButton.textContent = vip.expanded ? 'Hide' : 'Show';
     },
 
     /** Text size: `scale` is the list text scale (see lib/size.js); the header's controls follow part of the way. */

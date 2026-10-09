@@ -553,7 +553,7 @@ describe('hosting hooks', () => {
     expect(seen).toHaveBeenCalledTimes(1);
   });
 
-  it('shows and presses the VIP row from the page', () => {
+  it('opens the page\'s VIP row itself, with no banner of ours (scrolling the cards)', () => {
     document.body.innerHTML = '';
     document.body.insertAdjacentHTML(
       'beforeend',
@@ -564,9 +564,8 @@ describe('hosting hooks', () => {
     make();
     app.start();
 
-    expect(q('.vip-row').hidden).toBe(false);
-    q('.vip-btn').click();
-    expect(pressed).toHaveBeenCalled();
+    expect(pressed).toHaveBeenCalledTimes(1);
+    expect(q('.vip-row')).toBeNull();
   });
 });
 

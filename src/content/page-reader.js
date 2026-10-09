@@ -26,10 +26,10 @@ function sleep(ms) {
 }
 
 /**
- * `onSnapshot({ status, source, fallback, viaApi, qty, tickets, vip, pageSort, textPx, venue })` is called with the current page state
+ * `onSnapshot({ status, source, fallback, viaApi, qty, tickets, pageSort, textPx, venue })` is called with the current page state
  * whenever it changes. Tickets read from cards hold their `element`; tickets from the API don't (see clickTicket).
  * `source` is 'api' or 'scroll'; `fallback` says why the API isn't being used, if it was meant to be; `viaApi` is whether
- * the tickets are (or are about to be) read from it. `vip` is Ticketmaster's "VIP Packages" row: only the cards need it. `loadMode` ('api', the default, or 'scroll') says where tickets should come from.
+ * the tickets are (or are about to be) read from it. Scrolling the cards, the reader also opens Ticketmaster's "VIP Packages" row (once per quantity / sort) so the packages are in the list. `loadMode` ('api', the default, or 'scroll') says where tickets should come from.
  * `deps.apiSource` is for tests.
  */
 export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
@@ -45,6 +45,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   let startedAt = 0;
   let timers = [];
   let verified = null; // { signature, currency, tickets } the API's tickets once they agreed with the cards
+  let vipOpenedFor = null; // 'qty|sort' the VIP row has been opened for (scrolling the cards only): once each, never toggled back and forth
   let partialChecked = null; // signature of a list whose first pages (read so far) agreed with the cards
   let apiTickets = []; // the API's tickets as last shown (some of the list while it loads, then all): selecting counts identical ones in this order
   let mismatchSince = 0;
@@ -185,6 +186,22 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     return { tickets: verified.tickets, status: { loaded: verified.tickets.length, total: a.total, isComplete: true } };
   }
 
+  /**
+   * Scrolling the page's cards (not reading the API): the VIP packages are only in the page once Ticketmaster's
+   * "VIP Packages" row is open, so open it, for them to be in our list like any other ticket (the VIP pill then
+   * shows or hides them). Once for each quantity / sort the list is read for, and not at all if the packages are
+   * already showing: pressing the button again would close them.
+   */
+  function openVipRow(domTickets, qty, pageSort) {
+    const key = qty + '|' + pageSort;
+    if (vipOpenedFor === key) return;
+    const row = tm.findVipRow();
+    if (!row) return;
+    vipOpenedFor = key;
+    if (domTickets.some(function (t) { return t.type === 'vip'; })) return;
+    tm.clickElement(row.element);
+  }
+
   /** Read the page and report it, unless nothing has changed since last time. */
   function sendSnapshot(force) {
     if (!running) return;
@@ -216,17 +233,12 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     }
     if (!usingApi() && !status.isComplete && !autoScrollInterval) startAutoScroll();
 
-    const vipRow = tm.findVipRow();
-    // Expanded <=> the packages are actually in the list (works in any language).
-    const vip = vipRow
-      ? { element: vipRow.element, title: vipRow.title, range: vipRow.range, expanded: domTickets.some(function (t) { return t.type === 'vip'; }) }
-      : null;
-
     // Compare on the data alone: elements are re-created by Ticketmaster often
     // and say nothing about whether what the user sees has changed.
     const venue = tm.findVenue();
     const pageSort = tm.getPageSort();
     const textPx = tm.measureTicketTextPx();
+    if (!usingApi()) openVipRow(domTickets, qty, pageSort);
 
     const serialized = JSON.stringify({
       status,
@@ -237,7 +249,6 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
       pageSort,
       textPx,
       venue,
-      vip: vip && { title: vip.title, range: vip.range, expanded: vip.expanded },
       tickets: tickets.map(function (t) {
         const plain = Object.assign({}, t);
         delete plain.element;
@@ -247,7 +258,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     if (!force && serialized === lastSent) return;
     lastSent = serialized;
 
-    onSnapshot({ status, source, fallback: gaveUp, viaApi: usingApi(), qty, tickets, vip, pageSort, textPx, venue });
+    onSnapshot({ status, source, fallback: gaveUp, viaApi: usingApi(), qty, tickets, pageSort, textPx, venue });
   }
 
   // --- commands ------------------------------------------------------------
@@ -333,12 +344,6 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     tm.clickElement(card);
   }
 
-  /** Press Ticketmaster's "Show Tickets" / "Hide Tickets" button on the VIP row. */
-  function toggleVip() {
-    const row = tm.findVipRow();
-    if (row) tm.clickElement(row.element);
-  }
-
   /** Step Ticketmaster's own quantity control by +1 / -1, pausing auto-scroll while the page reacts. */
   function stepQuantity(delta) {
     const started = tm.stepQuantity(delta, function () {
@@ -355,6 +360,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     verified = null;
     partialChecked = null;
     apiTickets = [];
+    vipOpenedFor = null;
     mismatchSince = 0;
     startedAt = Date.now();
     if (loadMode === 'api') {
@@ -388,6 +394,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     verified = null;
     partialChecked = null;
     apiTickets = [];
+    vipOpenedFor = null;
   }
 
   /** 'api' (read the list API, the default) or 'scroll' (scroll Ticketmaster's list until it has loaded everything). */
@@ -412,7 +419,6 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     start,
     stop,
     clickTicket,
-    toggleVip,
     stepQuantity,
     setLoadMode,
     sourceInfo,

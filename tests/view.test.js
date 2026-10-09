@@ -11,7 +11,6 @@ function makeHandlers() {
     onBadgeCycle: vi.fn(),
     onSort: vi.fn(),
     onQuantityStep: vi.fn(),
-    onToggleVip: vi.fn(),
     onSaveVenue: vi.fn(),
     onResetVenue: vi.fn(),
     onShowOriginal: vi.fn(),
@@ -814,30 +813,12 @@ describe('createView', () => {
     expect(q('.search').value).toBe('pit');
   });
 
-  describe('VIP packages row', () => {
-    it('is hidden until the page has one', () => {
-      const { q } = make();
-      expect(q('.vip-row').hidden).toBe(true);
-    });
-
-    it('offers to show the packages, and presses the handler', () => {
-      const { view, handlers, q } = make();
-      view.renderVip({ title: 'VIP Packages', range: '€197.45–€329.40 each', expanded: false });
-      expect(q('.vip-row').hidden).toBe(false);
-      expect(q('.vip-label').textContent).toBe('★ VIP Packages · €197.45–€329.40 each');
-      expect(q('.vip-btn').textContent).toBe('Show');
-
-      q('.vip-btn').click();
-      expect(handlers.onToggleVip).toHaveBeenCalled();
-    });
-
-    it('offers to hide them once expanded, and goes away when the row does', () => {
+  describe('VIP packages', () => {
+    it('have no banner of their own: they are in the list, and the VIP pill filters them', () => {
       const { view, q } = make();
-      view.renderVip({ title: 'VIP Packages', range: '', expanded: true });
-      expect(q('.vip-btn').textContent).toBe('Hide');
-      expect(q('.vip-label').textContent).toBe('★ VIP Packages');
-      view.renderVip(null);
-      expect(q('.vip-row').hidden).toBe(true);
+      expect(q('.vip-row')).toBeNull();
+      expect(q('.vip-btn')).toBeNull();
+      expect(view.renderVip).toBeUndefined();
     });
   });
 

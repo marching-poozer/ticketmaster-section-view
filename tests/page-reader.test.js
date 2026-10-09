@@ -257,55 +257,92 @@ describe('auto-scroll', () => {
   });
 });
 
-describe('the VIP packages row', () => {
+describe('the VIP packages row (scrolling the cards)', () => {
   const loadRealPane = () => {
     document.body.innerHTML = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/quickpicks-pane.html'), 'utf8');
   };
+  const vipButton = () => document.querySelector('[data-testid="quickpicksList"] button');
+  const watchVip = () => {
+    const pressed = vi.fn();
+    vipButton().addEventListener('click', pressed);
+    return pressed;
+  };
 
-  it('is reported with each snapshot, as not expanded while no VIP cards are listed', () => {
+  it('opens Ticketmaster\'s own VIP row, once, so the packages are in the list', () => {
     loadRealPane();
-    const { reader, onSnapshot } = setup();
+    const pressed = watchVip();
+    const { reader } = setup();
     reader.start();
-    const { vip } = onSnapshot.mock.calls[0][0];
-    expect(vip).toMatchObject({ title: 'VIP Packages', range: '€197.45–€329.40 each', expanded: false });
-    expect(vip.element.tagName).toBe('BUTTON');
+    expect(pressed).toHaveBeenCalledTimes(1);
   });
 
-  it('is reported as expanded once VIP cards are in the list', () => {
+  it('does not press it again on later looks at the page: that would close it again', async () => {
+    vi.useFakeTimers();
+    loadRealPane();
+    const pressed = watchVip();
+    const { reader } = setup();
+    reader.start();
+    for (let i = 0; i < 4; i++) {
+      document.body.append(document.createElement('i'));
+      await settle(400);
+    }
+    expect(pressed).toHaveBeenCalledTimes(1);
+  });
+
+  it('presses it again for a new quantity (the list reloads, and the row closes)', async () => {
+    vi.useFakeTimers();
+    loadRealPane();
+    const spin = document.createElement('div');
+    spin.setAttribute('role', 'spinbutton');
+    spin.setAttribute('aria-valuenow', '2');
+    document.body.append(spin);
+    const pressed = watchVip();
+    const { reader } = setup();
+    reader.start();
+    expect(pressed).toHaveBeenCalledTimes(1);
+
+    spin.setAttribute('aria-valuenow', '3');
+    document.body.append(document.createElement('i')); // the list reloading: something changes on the page
+    await settle(400);
+    expect(pressed).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves it alone when the packages are already showing (pressing it would close them)', () => {
     loadRealPane();
     const list = document.querySelector('[data-testid="quickpicksList"]');
     const [vipCard] = addCards({ section: 'BLOCKE', row: 26, price: 253.65, packageTitle: 'Trivium Meet & Greet Package', vipIcon: true });
     list.append(vipCard);
-    const { reader, onSnapshot } = setup();
+    const pressed = watchVip();
+    const { reader } = setup();
     reader.start();
-    expect(onSnapshot.mock.calls[0][0].vip.expanded).toBe(true);
+    expect(pressed).not.toHaveBeenCalled();
   });
 
-  it('is null when there is no VIP row', () => {
+  it('finds the row when it appears after the first look, even if nothing else changed', async () => {
+    vi.useFakeTimers();
+    sampleCards();
+    const { reader } = setup();
+    reader.start();
+    document.body.innerHTML += '<div data-testid="quickpicksList"><div><button><svg class="StarCircledFilledIcon___X"></svg><span><span>VIP Packages</span><span>€100.00 each</span></span><span>Show Tickets</span></button></div></div>';
+    const pressed = vi.fn();
+    document.querySelector('button').addEventListener('click', pressed);
+    await settle(600);
+    expect(pressed).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing without a VIP row', () => {
     sampleCards();
     const { reader, onSnapshot } = setup();
-    reader.start();
-    expect(onSnapshot.mock.calls[0][0].vip).toBeNull();
+    expect(() => reader.start()).not.toThrow();
+    expect(onSnapshot).toHaveBeenCalled();
   });
 
-  it('toggleVip presses Ticketmaster\'s own button', () => {
+  it('no longer reports the row to the view: the VIP pill is all there is', () => {
     loadRealPane();
-    const button = document.querySelector('[data-testid="quickpicksList"] button');
-    const clicked = vi.fn();
-    button.addEventListener('click', clicked);
-    const { reader } = setup();
+    const { reader, onSnapshot } = setup();
     reader.start();
-
-    reader.toggleVip();
-
-    expect(clicked).toHaveBeenCalledTimes(1);
-  });
-
-  it('toggleVip does nothing without a VIP row', () => {
-    sampleCards();
-    const { reader } = setup();
-    reader.start();
-    expect(() => reader.toggleVip()).not.toThrow();
+    expect(onSnapshot.mock.calls[0][0]).not.toHaveProperty('vip');
+    expect(reader.toggleVip).toBeUndefined();
   });
 });
 

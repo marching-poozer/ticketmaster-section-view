@@ -116,9 +116,6 @@ export function createApp({ settings, version, readerDeps }) {
         render();
         deleteVenue(venue.id);
       },
-      onToggleVip() {
-        reader.toggleVip();
-      },
       onShowOriginal() {
         if (options.onShowOriginal) options.onShowOriginal();
       },
@@ -232,9 +229,6 @@ export function createApp({ settings, version, readerDeps }) {
     syncBadges();
     view.setSampleTexts(snapshot.tickets.map(function (t) { return [t.text, t.title]; }));
     view.renderStatus(snapshot.status, snapshot.source, snapshot.fallback);
-    // Read from the list API the packages are in our list already (the VIP pill filters them); the banner that
-    // expands Ticketmaster's own VIP row is only needed when we are scrolling its cards instead.
-    view.renderVip(snapshot.viaApi ? null : snapshot.vip);
     view.renderQuantity(snapshot.qty);
     view.renderCounter(snapshot.tickets.length, snapshot.qty);
 

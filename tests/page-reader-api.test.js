@@ -219,15 +219,37 @@ describe('once the API has been read', () => {
     expect(last().source).toBe('api');
   });
 
-  it('reports the VIP row from the cards (the packages are only on the page once it is expanded)', async () => {
+  it('lists the VIP packages from the API, and does not touch Ticketmaster\'s own VIP row', async () => {
     vi.useFakeTimers();
     pageCards();
+    document.body.insertAdjacentHTML('beforeend', '<div data-testid="quickpicksList"><div><button><svg class="StarCircledFilledIcon___X"></svg><span><span>VIP Packages</span><span>€100.00 each</span></span><span>Show Tickets</span></button></div></div>');
+    const pressed = vi.fn();
+    document.querySelector('[data-testid="quickpicksList"] button').addEventListener('click', pressed);
     const api = fakeApi({ phase: 'ready', total: 6, picks: [...matchingPicks(), pick('BLOCKE', 1, 253.65, { name: 'Trivium Meet & Greet Package' })] });
     const { reader, last } = setup(api);
     reader.start();
     await settle();
     expect(last().tickets.some((t) => t.type === 'vip')).toBe(true);
-    expect(last().vip).toBeNull(); // no VIP row on this page
+    expect(last()).not.toHaveProperty('vip');
+    expect(pressed).not.toHaveBeenCalled(); // only selecting a package needs the row open
+  });
+
+  it('opens Ticketmaster\'s VIP row once it is the cards being read (the API could not be used)', async () => {
+    vi.useFakeTimers();
+    pageCards();
+    document.body.insertAdjacentHTML('beforeend', '<div data-testid="quickpicksList"><div><button><svg class="StarCircledFilledIcon___X"></svg><span><span>VIP Packages</span><span>€100.00 each</span></span><span>Show Tickets</span></button></div></div>');
+    const pressed = vi.fn();
+    document.querySelector('[data-testid="quickpicksList"] button').addEventListener('click', pressed);
+    const api = fakeApi({ phase: 'loading', loaded: 20, total: 84 });
+    const { reader } = setup(api);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    reader.start();
+    await settle(500);
+    expect(pressed).not.toHaveBeenCalled(); // still hoping to read the API
+
+    api.set({ phase: 'failed', error: 'HTTP 403' });
+    await poke();
+    expect(pressed).toHaveBeenCalledTimes(1);
   });
 
   it('keeps showing the same tickets without telling the app again', async () => {

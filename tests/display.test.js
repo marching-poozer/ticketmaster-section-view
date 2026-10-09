@@ -42,28 +42,23 @@ describe('inline mode (the default)', () => {
     expect(inlineText()).toContain('Section BLOCKG');
   });
 
-  it('has no VIP packages banner when the tickets come from the list API: they are in the list, and the VIP pill filters them', async () => {
+  it('has no VIP packages banner: from the list API the packages are in the list, and the VIP pill filters them', async () => {
     buildTicketmasterPage();
     await start(); // reading the API is the default
-    expect(inlineHost().shadowRoot.querySelector('.vip-row').hidden).toBe(true);
+    expect(inlineHost().shadowRoot.querySelector('.vip-row')).toBeNull();
     expect(inlineHost().shadowRoot.querySelector('[data-badge="vip"]').textContent).toContain('VIP Packages');
   });
 
-  it('shows the VIP packages row from the page when scrolling instead, and presses Ticketmaster\'s own button when asked', async () => {
+  it('scrolling the cards, it opens Ticketmaster\'s VIP row itself instead, so there is still no banner', async () => {
     buildTicketmasterPage();
     const vipButton = document.querySelector('[data-testid="quickpicksList"] button');
     const clicked = vi.fn();
     vipButton.addEventListener('click', clicked);
-    await start({ loadMode: 'scroll' }); // the cards are all there is: they only show the packages once the row is expanded
+    await start({ loadMode: 'scroll' });
 
-    const row = inlineHost().shadowRoot.querySelector('.vip-row');
-    expect(row.hidden).toBe(false);
-    expect(row.textContent).toContain('VIP Packages');
-    expect(row.textContent).toContain('€197.45–€329.40 each');
-    expect(row.querySelector('.vip-btn').textContent).toBe('Show');
-
-    row.querySelector('.vip-btn').click();
-    expect(clicked).toHaveBeenCalled();
+    expect(clicked).toHaveBeenCalledTimes(1);
+    expect(inlineHost().shadowRoot.querySelector('.vip-row')).toBeNull();
+    expect(inlineHost().shadowRoot.querySelector('[data-badge="vip"]').textContent).toContain('VIP Packages');
   });
 
   it('uses the compact layout, with the way back to Ticketmaster\'s list on its own chip', async () => {
