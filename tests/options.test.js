@@ -45,6 +45,46 @@ const widthLabel = () => document.getElementById('width-label').textContent;
 const reset = () => document.getElementById('reset-width');
 
 describe('options page', () => {
+  describe('the on/off switch', () => {
+    const box = () => document.getElementById('enabled');
+    const flip = (checked) => {
+      box().checked = checked;
+      box().dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    it('is on by default', async () => {
+      await start();
+      expect(box().checked).toBe(true);
+    });
+
+    it('shows that it was switched off', async () => {
+      await start({ enabled: false });
+      expect(box().checked).toBe(false);
+    });
+
+    it('switches it off and on, saving each at once', async () => {
+      await start();
+      flip(false);
+      await flush();
+      expect(peekStorage('enabled')).toBe(false);
+      flip(true);
+      await flush();
+      expect(peekStorage('enabled')).toBe(true);
+    });
+
+    it('follows a switch made from the toolbar icon\'s menu', async () => {
+      await start();
+      await saveSettings({ enabled: false });
+      await flush();
+      expect(box().checked).toBe(false);
+    });
+
+    it('says where else the switch is', async () => {
+      await start();
+      expect(document.getElementById('power').textContent).toMatch(/toolbar icon/);
+    });
+  });
+
   it('shows the defaults: inline, floating pane on the right', async () => {
     await start();
     expect(checkedMode()).toBe('inline');

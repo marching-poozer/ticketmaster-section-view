@@ -255,6 +255,125 @@ describe('switching display mode in the settings', () => {
   });
 });
 
+describe('switched off (the toolbar icon\'s menu, or the options page)', () => {
+  const tmList = () => document.getElementById('quickpicks-list').parentElement;
+  const nothingOfOurs = () => {
+    expect(inlineHost()).toBeNull();
+    expect(paneHost()).toBeNull();
+    expect(chip()).toBeNull();
+    expect(getComputedStyle(tmList()).display).not.toBe('none');
+  };
+
+  it('starts with nothing on the page and Ticketmaster\'s own list untouched', async () => {
+    buildTicketmasterPage();
+    await start({ enabled: false });
+    await settle(500);
+    nothingOfOurs();
+  });
+
+  it('starts with nothing on the page in pane mode too', async () => {
+    buildTicketmasterPage();
+    await start({ enabled: false, displayMode: 'pane', paneOpen: true });
+    await settle(500);
+    nothingOfOurs();
+  });
+
+  it('ignores the toolbar icon while it is off', async () => {
+    buildTicketmasterPage();
+    await start({ enabled: false });
+    expect(() => toolbar()).not.toThrow();
+    await settle(300);
+    nothingOfOurs();
+  });
+
+  it('appears when switched on, without reloading the page', async () => {
+    buildTicketmasterPage();
+    await start({ enabled: false });
+    await saveSettings({ enabled: true });
+    await flush();
+    await settle(300);
+    expect(inlineHost()).not.toBeNull();
+    expect(inlineText()).toContain('Section BLOCKG');
+    expect(chip()).not.toBeNull();
+  });
+
+  it('goes away when switched off, and gives Ticketmaster\'s list back as it was', async () => {
+    buildTicketmasterPage();
+    await start();
+    await settle(300);
+    expect(inlineHost()).not.toBeNull();
+
+    await saveSettings({ enabled: false });
+    await flush();
+    await settle(300);
+    nothingOfOurs();
+  });
+
+  it('takes the floating pane away too (as the fallback, and in pane mode)', async () => {
+    document.body.innerHTML = '<p>no Ticketmaster list here</p>';
+    await start();
+    await settle(3500); // long enough for the pane to stand in
+    expect(paneHost()).not.toBeNull();
+    await saveSettings({ enabled: false });
+    await flush();
+    expect(paneHost()).toBeNull();
+
+    buildTicketmasterPage();
+    await saveSettings({ displayMode: 'pane', enabled: true });
+    await flush();
+    expect(paneHost()).not.toBeNull();
+    await saveSettings({ enabled: false });
+    await flush();
+    expect(paneHost()).toBeNull();
+  });
+
+  it('comes back, switched on again, with the settings changed in the meantime', async () => {
+    buildTicketmasterPage();
+    await start();
+    await saveSettings({ enabled: false });
+    await flush();
+    await saveSettings({ uiSize: 'compact', displayMode: 'pane', paneSide: 'left' });
+    await flush();
+    nothingOfOurs();
+
+    await saveSettings({ enabled: true });
+    await flush();
+    expect(inlineHost()).toBeNull(); // pane mode now
+    expect(paneWrap().dataset.side).toBe('left');
+  });
+
+  it('can be switched off and on again many times without leaving anything behind', async () => {
+    buildTicketmasterPage();
+    await start();
+    for (let i = 0; i < 4; i++) {
+      await saveSettings({ enabled: false });
+      await flush();
+      await settle(100);
+      nothingOfOurs();
+      await saveSettings({ enabled: true });
+      await flush();
+      await settle(300);
+      expect(document.querySelectorAll('#tmsv-inline-host')).toHaveLength(1);
+      expect(document.querySelectorAll('[data-tmsv-chip]')).toHaveLength(1);
+    }
+  });
+
+  it('the toolbar icon works again once it is switched back on', async () => {
+    buildTicketmasterPage();
+    await start();
+    await saveSettings({ enabled: false });
+    await flush();
+    await saveSettings({ enabled: true });
+    await flush();
+    await settle(300);
+    toolbar();
+    expect(inlineHost()).toBeNull(); // over to Ticketmaster's list
+    expect(chip().textContent.trim()).toBe('Tickets');
+    toolbar();
+    expect(inlineHost().dataset.mode).toBe('view');
+  });
+});
+
 describe('startup', () => {
   it('copes with garbage in storage by using the defaults (inline)', async () => {
     buildTicketmasterPage();

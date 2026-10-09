@@ -34,8 +34,8 @@ describe('manifest', () => {
     expect(first.matches).toEqual(second.matches);
   });
 
-  it('asks for no more than storage', () => {
-    expect(manifest.permissions).toEqual(['storage']);
+  it('asks for no more than storage (settings) and contextMenus (the on/off item in the toolbar icon\'s menu)', () => {
+    expect(manifest.permissions).toEqual(['storage', 'contextMenus']);
     expect(manifest.host_permissions).toBeUndefined();
   });
 });

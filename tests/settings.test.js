@@ -8,6 +8,7 @@ import {
 import { chrome, flush, peekStorage, seedStorage } from './mocks/chrome.js';
 
 const DEFAULTS = {
+  enabled: true,
   sort: 'row',
   seatFilter: 'all',
   qualityFilter: 'any',
@@ -24,6 +25,28 @@ const DEFAULTS = {
   paneOpen: false,
 };
 
+describe('enabled (Section View switched on or off)', () => {
+  it('is on unless it has been switched off', () => {
+    expect(normalizeSettings({}).enabled).toBe(true);
+    expect(normalizeSettings({ enabled: true }).enabled).toBe(true);
+    expect(normalizeSettings({ enabled: false }).enabled).toBe(false);
+  });
+
+  it('only a real false switches it off: anything else a bad value in storage leaves it on', () => {
+    ['no', 0, null, 'false', [], {}].forEach((v) => expect(normalizeSettings({ enabled: v }).enabled).toBe(true));
+  });
+
+  it('is saved under its own key, and followed when it changes elsewhere', async () => {
+    await saveSettings({ enabled: false });
+    expect(peekStorage('enabled')).toBe(false);
+    expect((await loadSettings()).enabled).toBe(false);
+    const on = applySettingsChanges(normalizeSettings({ enabled: false }), { enabled: { oldValue: false, newValue: true } });
+    expect(on.enabled).toBe(true);
+    const removed = applySettingsChanges(normalizeSettings({ enabled: false }), { enabled: { oldValue: false, newValue: undefined } });
+    expect(removed.enabled).toBe(true); // a removed key is back to its default
+  });
+});
+
 describe('normalizeSettings', () => {
   it('defaults everything for missing or garbage input', () => {
     expect(normalizeSettings(undefined)).toEqual(DEFAULTS);
@@ -34,7 +57,7 @@ describe('normalizeSettings', () => {
 
   it('keeps valid values', () => {
     const customBadges = [{ id: 'aisle1', label: 'Aisle', icon: '🚶', color: 'blue', pattern: 'aisle' }];
-    const valid = { sort: 'price', seatFilter: 'frontrows', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
+    const valid = { enabled: false, sort: 'price', seatFilter: 'frontrows', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
 

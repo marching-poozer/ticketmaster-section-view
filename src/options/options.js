@@ -20,6 +20,7 @@ import {
 export async function init() {
   let settings = await loadSettings();
 
+  const enabledBox = document.getElementById('enabled');
   const widthLabel = document.getElementById('width-label');
   const resetWidth = document.getElementById('reset-width');
   const sideRadios = Array.from(document.querySelectorAll('input[name="paneSide"]'));
@@ -122,6 +123,7 @@ export async function init() {
   }
 
   function render() {
+    enabledBox.checked = settings.enabled;
     frontRowsInput.value = String(settings.frontRows);
     modeRadios.forEach(function (r) { r.checked = r.value === settings.displayMode; });
     sizeRadios.forEach(function (r) { r.checked = r.value === settings.uiSize; });
@@ -138,6 +140,10 @@ export async function init() {
     return saveSettings(patch);
   }
 
+  function onEnabledChange(e) {
+    change({ enabled: e.target.checked });
+  }
+  enabledBox.addEventListener('change', onEnabledChange);
   function onSideChange(e) {
     if (e.target.checked) change({ paneSide: e.target.value });
   }
@@ -190,6 +196,7 @@ export async function init() {
 
   return {
     destroy() {
+      enabledBox.removeEventListener('change', onEnabledChange);
       sideRadios.forEach(function (r) { r.removeEventListener('change', onSideChange); });
       modeRadios.forEach(function (r) { r.removeEventListener('change', onModeChange); });
       sizeRadios.forEach(function (r) { r.removeEventListener('change', onSizeChange); });

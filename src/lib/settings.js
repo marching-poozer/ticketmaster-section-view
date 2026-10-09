@@ -59,6 +59,8 @@ export function normalizeSettings(raw) {
   // "Standing" used to be a choice in Seats; it is an "Other" pill now (showing only standing tickets, or hiding them).
   const showFilters = Array.from(new Set(legacy.filter(isOtherKey).concat(s.seatFilter === 'standing' ? ['standing'] : [])));
   return {
+    // Section View on or off (the menu of the toolbar icon, and the options page). Off means it does nothing on the page.
+    enabled: s.enabled !== false,
     sort: SORTS.includes(s.sort) ? s.sort : 'row',
     // The seat and price choices used to be pills among the others in `badgeFilters`: carry those over.
     seatFilter: SEAT_KEYS.includes(s.seatFilter) ? s.seatFilter : legacySeat(legacy),

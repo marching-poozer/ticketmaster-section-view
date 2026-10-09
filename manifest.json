@@ -5,7 +5,8 @@
   "description": "Seat-scouting pane for Ticketmaster: groups ticket options by section with price, resale-markup and best-seat badges.",
   "minimum_chrome_version": "111",
   "permissions": [
-    "storage"
+    "storage",
+    "contextMenus"
   ],
   "icons": {
     "16": "icons/icon16.png",

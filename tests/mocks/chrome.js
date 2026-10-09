@@ -7,6 +7,7 @@ import { vi } from 'vitest';
 
 let store = {};
 let senderTab = null; // what runtime.sendMessage reports as sender.tab
+const menuItems = new Map(); // chrome.contextMenus items by id
 
 function createEvent() {
   const listeners = new Set();
@@ -57,11 +58,26 @@ export const chrome = {
     getManifest: () => ({ version: '1.0.0' }),
     getURL: (path) => 'chrome-extension://test/' + path,
     onMessage: createEvent(),
+    onInstalled: createEvent(),
+    onStartup: createEvent(),
     openOptionsPage: vi.fn(async () => {}),
     sendMessage: vi.fn(async () => {}),
   },
 
-  action: { onClicked: createEvent() },
+  action: {
+    onClicked: createEvent(),
+    setBadgeText: vi.fn(async () => {}),
+    setBadgeBackgroundColor: vi.fn(async () => {}),
+    setTitle: vi.fn(async () => {}),
+  },
+
+  // Items are kept so tests can see what the menu holds: menuItems().
+  contextMenus: {
+    onClicked: createEvent(),
+    create: vi.fn((props, callback) => { menuItems.set(props.id, { ...props }); if (callback) callback(); return props.id; }),
+    update: vi.fn((id, props, callback) => { if (menuItems.has(id)) Object.assign(menuItems.get(id), props); if (callback) callback(); }),
+    removeAll: vi.fn((callback) => { menuItems.clear(); if (callback) callback(); }),
+  },
 
   tabs: { sendMessage: vi.fn(async () => {}) },
 };
@@ -69,10 +85,17 @@ export const chrome = {
 export function resetChrome() {
   store = {};
   senderTab = null;
-  [chrome.storage.onChanged, chrome.runtime.onMessage, chrome.action.onClicked].forEach((ev) => ev.clear());
+  [chrome.storage.onChanged, chrome.runtime.onMessage, chrome.runtime.onInstalled, chrome.runtime.onStartup, chrome.action.onClicked, chrome.contextMenus.onClicked].forEach((ev) => ev.clear());
+  menuItems.clear();
+  [chrome.action.setBadgeText, chrome.action.setBadgeBackgroundColor, chrome.action.setTitle, chrome.contextMenus.create, chrome.contextMenus.update, chrome.contextMenus.removeAll].forEach((fn) => fn.mockClear());
   chrome.runtime.sendMessage.mockClear();
   chrome.runtime.openOptionsPage.mockClear();
   chrome.tabs.sendMessage.mockClear();
+}
+
+/** What the toolbar icon's menu holds right now: { id: { title, type, checked, contexts } }. */
+export function menuContents() {
+  return Object.fromEntries(menuItems);
 }
 
 /** Direct read of one persisted key, for assertions. */

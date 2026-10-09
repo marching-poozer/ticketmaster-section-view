@@ -38,13 +38,17 @@ Needs Chrome 111 or newer (Manifest V3). To update, pull or download again and p
 
 If you also use the Tampermonkey userscript this extension grew out of, switch the userscript off or you'll get two panels.
 
+## Turning it off
+
+Right-click the toolbar icon (or use the ⋮ beside it in the browser's extensions menu) and untick **Enable Section View**. It takes effect at once, with no reload: Ticketmaster's list goes back exactly as Ticketmaster built it, and nothing is read or requested while it's off. The icon shows "off", and clicking it turns Section View back on. The same switch is on the settings page.
+
 ## Settings
 
 Click the ⚙ in the view's header (or the extension's options page) for: where to show it (in place of Ticketmaster's list, or a floating pane and which side), text size (compact / match Ticketmaster / comfortable), how tickets are loaded (Ticketmaster's list request, or scrolling), the default number of "front" rows, your custom badges, and each saved venue's settings.
 
 ## Privacy
 
-- The only permission it asks for is **storage**, to remember your settings in your browser.
+- It asks for two permissions: **storage**, to remember your settings in your browser, and **contextMenus**, for the on/off item in the toolbar icon's menu. Neither can read any page.
 - It runs only on Ticketmaster sites, reads the page you are on, and makes the same ticket-list requests the page itself makes, with your own browser session. **Nothing is sent anywhere else.**
 
 ## Development
