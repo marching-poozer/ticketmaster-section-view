@@ -21,6 +21,7 @@ export async function init() {
   let settings = await loadSettings();
 
   const enabledBox = document.getElementById('enabled');
+  const mapBox = document.getElementById('map-link');
   const widthLabel = document.getElementById('width-label');
   const resetWidth = document.getElementById('reset-width');
   const sideRadios = Array.from(document.querySelectorAll('input[name="paneSide"]'));
@@ -124,6 +125,7 @@ export async function init() {
 
   function render() {
     enabledBox.checked = settings.enabled;
+    mapBox.checked = settings.mapLink;
     frontRowsInput.value = String(settings.frontRows);
     modeRadios.forEach(function (r) { r.checked = r.value === settings.displayMode; });
     sizeRadios.forEach(function (r) { r.checked = r.value === settings.uiSize; });
@@ -144,6 +146,10 @@ export async function init() {
     change({ enabled: e.target.checked });
   }
   enabledBox.addEventListener('change', onEnabledChange);
+  function onMapChange(e) {
+    change({ mapLink: e.target.checked });
+  }
+  mapBox.addEventListener('change', onMapChange);
   function onSideChange(e) {
     if (e.target.checked) change({ paneSide: e.target.value });
   }
@@ -197,6 +203,7 @@ export async function init() {
   return {
     destroy() {
       enabledBox.removeEventListener('change', onEnabledChange);
+      mapBox.removeEventListener('change', onMapChange);
       sideRadios.forEach(function (r) { r.removeEventListener('change', onSideChange); });
       modeRadios.forEach(function (r) { r.removeEventListener('change', onModeChange); });
       sizeRadios.forEach(function (r) { r.removeEventListener('change', onSizeChange); });

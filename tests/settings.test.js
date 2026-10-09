@@ -9,6 +9,7 @@ import { chrome, flush, peekStorage, seedStorage } from './mocks/chrome.js';
 
 const DEFAULTS = {
   enabled: true,
+  mapLink: true,
   sort: 'row',
   seatFilter: 'all',
   qualityFilter: 'any',
@@ -24,6 +25,20 @@ const DEFAULTS = {
   paneWidth: 380,
   paneOpen: false,
 };
+
+describe('mapLink (linking the list to the venue\'s seat map)', () => {
+  it('is on unless it has been switched off, and only a real false switches it off', () => {
+    expect(normalizeSettings({}).mapLink).toBe(true);
+    expect(normalizeSettings({ mapLink: false }).mapLink).toBe(false);
+    ['no', 0, null, 'false', [], {}].forEach((v) => expect(normalizeSettings({ mapLink: v }).mapLink).toBe(true));
+  });
+
+  it('is saved under its own key', async () => {
+    await saveSettings({ mapLink: false });
+    expect(peekStorage('mapLink')).toBe(false);
+    expect((await loadSettings()).mapLink).toBe(false);
+  });
+});
 
 describe('enabled (Section View switched on or off)', () => {
   it('is on unless it has been switched off', () => {
@@ -57,7 +72,7 @@ describe('normalizeSettings', () => {
 
   it('keeps valid values', () => {
     const customBadges = [{ id: 'aisle1', label: 'Aisle', icon: '🚶', color: 'blue', pattern: 'aisle' }];
-    const valid = { enabled: false, sort: 'price', seatFilter: 'frontrows', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
+    const valid = { enabled: false, mapLink: false, sort: 'price', seatFilter: 'frontrows', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
 

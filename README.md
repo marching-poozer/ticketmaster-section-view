@@ -21,6 +21,7 @@ Above: the view in Ticketmaster's own ticket pane. The pills filter by seats, qu
   - **Other:** Standing, Resale, VIP packages, and every attribute Ticketmaster reports (such as Aisle). Click a pill once to show only those tickets, again to **hide** them (so hiding Standing means "seated only"), a third time to clear it.
 - **Your own badges.** Tag tickets whose text matches a pattern (a regular expression), globally or per venue.
 - **Per-venue row settings.** Some venues don't start at Row 1 (3Arena, Dublin: the lower tier starts at Row 21, the upper at Row 33). Tell it where each tier starts (numbers or letters) so "1st row" and "First N rows" mean the right thing. Use the 📍 button in the header, or the options page.
+- **Works with the venue's interactive seat map** (where the page has one, like The O2 Belfast's): blocks your filters leave without any tickets are veiled in white; hovering a section in the list outlines its block and has the map show its own tooltip; resting on an *open* section opens it on the map; hovering a block lights up its section in the list, and clicking one opens it. Ticketmaster's own map is never altered, and it can be switched off in the settings.
 - **Click a ticket to select it** on Ticketmaster's page, exactly as if you had clicked its own card.
 - Shows **in place of Ticketmaster's list** (default, with a *By Section / Tickets* switch among its filter chips) or in a **floating pane** you can drag to resize.
 

@@ -61,6 +61,8 @@ export function normalizeSettings(raw) {
   return {
     // Section View on or off (the menu of the toolbar icon, and the options page). Off means it does nothing on the page.
     enabled: s.enabled !== false,
+    // Link our list to the venue's interactive seat map, where the page has one (dim the blocks our filters leave empty, hover and click).
+    mapLink: s.mapLink !== false,
     sort: SORTS.includes(s.sort) ? s.sort : 'row',
     // The seat and price choices used to be pills among the others in `badgeFilters`: carry those over.
     seatFilter: SEAT_KEYS.includes(s.seatFilter) ? s.seatFilter : legacySeat(legacy),

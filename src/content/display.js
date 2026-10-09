@@ -14,17 +14,29 @@ import { MSG } from '../lib/protocol.js';
 import { applySettingsChanges, loadSettings } from '../lib/settings.js';
 import { createApp } from './app.js';
 import { createInline } from './inline.js';
+import { createMapLink } from './map.js';
 import { createPane } from './pane.js';
 
 /** Start Section View on this page. Resolves to a handle with destroy() (used by tests). */
 export async function initDisplay() {
   let settings = await loadSettings();
-  let live = null; // { app, pane, inline } while Section View is on; null while it is switched off
+  let live = null; // { app, pane, inline, map } while Section View is on; null while it is switched off
   let available = null; // is Ticketmaster's pane on the page? (null = not known yet)
 
   /** Build the app and its two hosts, and make one of them responsible for the view. */
   function build() {
-    const app = createApp({ settings, version: chrome.runtime.getManifest().version });
+    // The venue's seat map, where the page has one: our filters dim its empty blocks, and the map and the list light each other up.
+    const map = createMapLink({
+      onHover(name) { app.highlightSection(name); },
+      onClick(name) { app.openSection(name); },
+    });
+    map.setEnabled(settings.mapLink);
+    const app = createApp({
+      settings,
+      version: chrome.runtime.getManifest().version,
+      onSections(state) { map.update(state); },
+      onSectionHover(name, open) { map.hover(name, open); },
+    });
     const pane = createPane(app, settings, { active: false });
     const inline = createInline(app, {
       onAvailability(isAvailable) {
@@ -32,7 +44,7 @@ export async function initDisplay() {
         reconcile();
       },
     });
-    live = { app, pane, inline };
+    live = { app, pane, inline, map };
     reconcile();
   }
 
@@ -42,6 +54,7 @@ export async function initDisplay() {
     const old = live;
     live = null;
     available = null;
+    old.map.destroy();
     old.inline.destroy();
     old.pane.destroy();
   }
@@ -75,6 +88,7 @@ export async function initDisplay() {
     if (area !== 'local') return;
     const wasOn = settings.enabled;
     const before = settings.displayMode;
+    const mapBefore = settings.mapLink;
     settings = applySettingsChanges(settings, changes);
 
     if (settings.enabled !== wasOn) {
@@ -87,6 +101,7 @@ export async function initDisplay() {
     live.pane.update(settings);
     live.app.updateSettings(settings);
     live.app.handleStorageChange(changes);
+    if (settings.mapLink !== mapBefore) live.map.setEnabled(settings.mapLink);
     if (settings.displayMode !== before) reconcile();
   }
 

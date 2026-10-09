@@ -45,6 +45,38 @@ const widthLabel = () => document.getElementById('width-label').textContent;
 const reset = () => document.getElementById('reset-width');
 
 describe('options page', () => {
+  describe('the seat map link', () => {
+    const box = () => document.getElementById('map-link');
+    const flip = (checked) => {
+      box().checked = checked;
+      box().dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    it('is on by default, and shows that it was switched off', async () => {
+      await start();
+      expect(box().checked).toBe(true);
+      page.destroy();
+      page = null;
+      await start({ mapLink: false });
+      expect(box().checked).toBe(false);
+    });
+
+    it('is saved as it changes', async () => {
+      await start();
+      flip(false);
+      await flush();
+      expect(peekStorage('mapLink')).toBe(false);
+      flip(true);
+      await flush();
+      expect(peekStorage('mapLink')).toBe(true);
+    });
+
+    it('says what it does', async () => {
+      await start();
+      expect(document.getElementById('seatmap').textContent).toMatch(/veiled in white/);
+    });
+  });
+
   describe('the on/off switch', () => {
     const box = () => document.getElementById('enabled');
     const flip = (checked) => {

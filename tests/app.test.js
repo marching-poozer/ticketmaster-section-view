@@ -570,6 +570,83 @@ describe('hosting hooks', () => {
   });
 });
 
+describe('the venue\'s seat map', () => {
+  /** An app that tells the map about its sections. */
+  function makeMapped(settings = {}) {
+    const onSections = vi.fn();
+    const onSectionHover = vi.fn();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', ...settings }), version: '1.2.3', onSections, onSectionHover });
+    document.body.append(app.root);
+    return { onSections, onSectionHover };
+  }
+  const last = (fn) => fn.mock.calls[fn.mock.calls.length - 1][0];
+
+  it('hears about every section, which of them still show tickets, and whether everything has loaded', () => {
+    sampleCards();
+    const { onSections } = makeMapped();
+    app.start();
+    const state = last(onSections);
+    expect(state.sections.map((s) => s.name)).toEqual(['101', '102', 'PIT']);
+    expect(state.sections[0].tickets).toHaveLength(2);
+    expect([...state.visible].sort()).toEqual(['101', '102', 'PIT']);
+    expect(state.ready).toBe(true);
+  });
+
+  it('hears which sections the filters leave out', () => {
+    sampleCards();
+    const { onSections } = makeMapped();
+    app.start();
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click(); // show only resale tickets: section 102
+    const state = last(onSections);
+    expect(state.sections.map((s) => s.name)).toEqual(['101', '102', 'PIT']); // every section still, so a block stays linked
+    expect([...state.visible]).toEqual(['102']);
+  });
+
+  it('says the list is not ready while tickets are still loading', () => {
+    addLoadedLabel(4, 84);
+    addCards({ section: '101', row: 12, price: 90 });
+    const { onSections } = makeMapped();
+    app.start();
+    expect(last(onSections).ready).toBe(false);
+  });
+
+  it('hears nothing before there are tickets', () => {
+    const { onSections } = makeMapped();
+    app.start();
+    expect(onSections).not.toHaveBeenCalled();
+  });
+
+  it('tells the map when the mouse goes over a section in the list', () => {
+    sampleCards();
+    const { onSectionHover } = makeMapped();
+    app.start();
+    q('.section').dispatchEvent(new MouseEvent('mouseenter'));
+    expect(onSectionHover).toHaveBeenLastCalledWith('PIT', false); // the first section in the list, closed
+    q('.section').dispatchEvent(new MouseEvent('mouseleave'));
+    expect(onSectionHover).toHaveBeenLastCalledWith(null, false);
+  });
+
+  it('outlines a section when the mouse is over its block, and opens it when the block is clicked', () => {
+    sampleCards();
+    makeMapped();
+    app.start();
+    app.highlightSection('102');
+    expect(qa('.section.map-hover').map((s) => s.getAttribute('data-section'))).toEqual(['102']);
+    app.highlightSection(null);
+    expect(qa('.section.map-hover')).toHaveLength(0);
+    expect(app.openSection('102')).toBe(true);
+    expect(qa('.section').find((s) => s.getAttribute('data-section') === '102').open).toBe(true);
+    expect(app.openSection('NOWHERE')).toBe(false);
+  });
+
+  it('works without a map to tell (no callbacks)', () => {
+    sampleCards();
+    make();
+    expect(() => app.start()).not.toThrow();
+    expect(() => q('.section').dispatchEvent(new MouseEvent('mouseenter'))).not.toThrow();
+  });
+});
+
 describe('text size', () => {
   const lastScale = () => app.root.style.getPropertyValue('--sv-scale');
 

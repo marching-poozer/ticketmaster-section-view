@@ -6,6 +6,7 @@
 import { compileBadges } from '../lib/custom-badges.js';
 import { attributesOf } from '../lib/quickpicks.js';
 import { MSG } from '../lib/protocol.js';
+import { sectionsOf } from '../lib/map-link.js';
 import { buildSectionGroups } from '../lib/sections.js';
 import { saveSettings } from '../lib/settings.js';
 import { uiScale } from '../lib/size.js';
@@ -14,7 +15,11 @@ import { createPageReader } from './page-reader.js';
 import { createView } from './view.js';
 
 /** `readerDeps` is for tests (see createPageReader). */
-export function createApp({ settings, version, readerDeps }) {
+/**
+ * `onSections({ sections, visible, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
+ * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it.
+ */
+export function createApp({ settings, version, readerDeps, onSections, onSectionHover }) {
   // Behaviour that depends on where the view is hosted; see configure().
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
@@ -94,6 +99,9 @@ export function createApp({ settings, version, readerDeps }) {
       },
       onQuantityStep(delta) {
         reader.stepQuantity(delta);
+      },
+      onSectionHover(name, open) {
+        if (onSectionHover) onSectionHover(name, open);
       },
       onSaveVenue({ firstRows, frontRows, badges }) {
         if (!venue) return;
@@ -241,6 +249,7 @@ export function createApp({ settings, version, readerDeps }) {
     // buildSectionGroups annotates tickets in place; keep the snapshot pristine.
     const result = buildSectionGroups(snapshot.tickets.map(function (t) { return Object.assign({}, t); }), Object.assign({ rowConfig: rowConfig(), customBadges }, state));
     view.setCounts(result.counts);
+    if (onSections) onSections({ sections: sectionsOf(snapshot.tickets), visible: new Set(result.groups.map(function (g) { return g.name; })), ready: snapshot.status.isComplete === true });
     const shown = result.groups.reduce(function (n, g) { return n + g.tickets.length; }, 0);
     view.renderCounter(snapshot.tickets.length, snapshot.qty, snapshot.tickets.length - shown);
     if (result.empty === 'no-sections') view.renderMessage('No matching blocks found.');
@@ -254,6 +263,16 @@ export function createApp({ settings, version, readerDeps }) {
 
   return {
     root: view.root,
+
+    /** The venue's map: the mouse is over (or has left) a block of this section. */
+    highlightSection(name) {
+      view.highlightSection(name);
+    },
+
+    /** The venue's map: a block of this section was clicked: open it in the list. */
+    openSection(name) {
+      return view.openSection(name);
+    },
 
     /**
      * Host-specific behaviour. `scrollToClicked`: scroll Ticketmaster's list to a

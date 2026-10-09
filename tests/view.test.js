@@ -15,6 +15,7 @@ function makeHandlers() {
     onResetVenue: vi.fn(),
     onShowOriginal: vi.fn(),
     onOpenSettings: vi.fn(),
+    onSectionHover: vi.fn(),
   };
 }
 
@@ -811,6 +812,105 @@ describe('createView', () => {
     const { view, q } = make();
     view.setSearch('pit');
     expect(q('.search').value).toBe('pit');
+  });
+
+  describe('the venue\'s seat map', () => {
+    const groupsFor = (...names) => names.map((name) => {
+      const ticket = { section: name, originalSection: name, row: 1, rowName: '1', price: 50, currency: '€', isResale: false, type: 'standard', title: 'Row 1', badges: {}, seat: '1', seatFrom: '1', seatTo: '1' };
+      return { name, tickets: [ticket], topTicket: ticket, rows: [{ row: 1, label: 'Row 1', tickets: [ticket], topTicket: ticket }] };
+    });
+
+    it('marks each section with its name, for the map to find', () => {
+      const { view, q, qa } = make();
+      view.renderGroups(groupsFor('NTHU3', 'WESTU1'), 'price', () => {});
+      expect(qa('.section').map((s) => s.getAttribute('data-section'))).toEqual(['NTHU3', 'WESTU1']);
+      expect(q('.section')).not.toBeNull();
+    });
+
+    it('tells when the mouse goes onto a section, closed, and when it leaves', () => {
+      const { view, handlers, q } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      q('.section').dispatchEvent(new MouseEvent('mouseenter'));
+      expect(handlers.onSectionHover).toHaveBeenLastCalledWith('NTHU3', false);
+      q('.section').dispatchEvent(new MouseEvent('mouseleave'));
+      expect(handlers.onSectionHover).toHaveBeenLastCalledWith(null, false);
+    });
+
+    it('says when the section the mouse goes onto is open: the map should open it, not just show it', () => {
+      const { view, handlers, q } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      view.openSection('NTHU3');
+      q('.section').dispatchEvent(new MouseEvent('mouseenter'));
+      expect(handlers.onSectionHover).toHaveBeenLastCalledWith('NTHU3', true);
+    });
+
+    it('says so when a section is opened with the mouse on it', async () => {
+      const { view, handlers, q } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      q('.section').dispatchEvent(new MouseEvent('mouseenter'));
+      expect(handlers.onSectionHover).toHaveBeenLastCalledWith('NTHU3', false);
+      q('.section').open = true;
+      q('.section').dispatchEvent(new Event('toggle'));
+      expect(handlers.onSectionHover).toHaveBeenLastCalledWith('NTHU3', true);
+    });
+
+    it('does not say so when it is opened with the mouse elsewhere (by the map\'s click)', () => {
+      const { view, handlers, q } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      handlers.onSectionHover.mockClear();
+      q('.section').open = true;
+      q('.section').dispatchEvent(new Event('toggle'));
+      expect(handlers.onSectionHover).not.toHaveBeenCalled();
+    });
+
+    it('outlines a section the mouse is over on the map, and takes it off again', () => {
+      const { view, q, qa } = make();
+      view.renderGroups(groupsFor('NTHU3', 'WESTU1'), 'price', () => {});
+      view.highlightSection('WESTU1');
+      expect(qa('.section.map-hover').map((s) => s.getAttribute('data-section'))).toEqual(['WESTU1']);
+      view.highlightSection('NTHU3');
+      expect(qa('.section.map-hover').map((s) => s.getAttribute('data-section'))).toEqual(['NTHU3']);
+      view.highlightSection(null);
+      expect(q('.section.map-hover')).toBeNull();
+    });
+
+    it('keeps the outline when the list is drawn again (it is rebuilt on every update)', () => {
+      const { view, qa } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      view.highlightSection('NTHU3');
+      view.renderGroups(groupsFor('NTHU3', 'WESTU1'), 'price', () => {});
+      expect(qa('.section.map-hover').map((s) => s.getAttribute('data-section'))).toEqual(['NTHU3']);
+    });
+
+    it('ignores a section that is not in the list (the filters leave it out)', () => {
+      const { view, qa } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      expect(() => view.highlightSection('NOWHERE')).not.toThrow();
+      expect(qa('.section.map-hover')).toHaveLength(0);
+    });
+
+    it('opens a section when its block is clicked, and remembers it is open when the list is rebuilt', () => {
+      const { view, qa } = make();
+      view.renderGroups(groupsFor('NTHU3', 'WESTU1'), 'price', () => {});
+      expect(qa('.section').every((s) => !s.open)).toBe(true);
+      expect(view.openSection('WESTU1')).toBe(true);
+      expect(qa('.section').map((s) => s.open)).toEqual([false, true]);
+      view.renderGroups(groupsFor('NTHU3', 'WESTU1'), 'price', () => {});
+      expect(qa('.section').map((s) => s.open)).toEqual([false, true]);
+    });
+
+    it('says when there is no such section to open', () => {
+      const { view } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      expect(view.openSection('NOWHERE')).toBe(false);
+    });
+
+    it('does not need the handler (a host with no map)', () => {
+      const { view, handlers, q } = make();
+      delete handlers.onSectionHover;
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      expect(() => q('.section').dispatchEvent(new MouseEvent('mouseenter'))).not.toThrow();
+    });
   });
 
   describe('VIP packages', () => {

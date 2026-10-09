@@ -1,0 +1,346 @@
+{
+ "_note": "The blocks of The O2 Belfast's seat map (ticketmaster.ie, 2026-10-09): <svg data-component=\"svg\" viewBox=\"0 0 10240 7680\"> whose <path data-component=\"svg__section\" data-section-id data-section-name data-active> are invisible overlays on a background picture that holds the labels. Not the whole map (the paste was cut off): enough names and ids to test linking.",
+ "viewBox": "0 0 10240 7680",
+ "blocks": [
+  {
+   "id": "s_38",
+   "name": "WEST LOWER 8",
+   "active": true
+  },
+  {
+   "id": "s_37",
+   "name": "WEST UPPER 6",
+   "active": true
+  },
+  {
+   "id": "s_39",
+   "name": "WEST LOWER 7",
+   "active": true
+  },
+  {
+   "id": "s_34",
+   "name": "SOUTH UPPER 1",
+   "active": true
+  },
+  {
+   "id": "s_78",
+   "name": "NORTH MIDDLE 4",
+   "active": true
+  },
+  {
+   "id": "s_33",
+   "name": "SOUTH UPPER 2",
+   "active": true
+  },
+  {
+   "id": "s_77",
+   "name": "NORTH MIDDLE 5",
+   "active": false
+  },
+  {
+   "id": "s_36",
+   "name": "WEST UPPER 7",
+   "active": true
+  },
+  {
+   "id": "s_35",
+   "name": "WEST UPPER 8",
+   "active": false
+  },
+  {
+   "id": "s_79",
+   "name": "NORTH MIDDLE 3",
+   "active": true
+  },
+  {
+   "id": "s_30",
+   "name": "SOUTH UPPER 5",
+   "active": true
+  },
+  {
+   "id": "s_32",
+   "name": "SOUTH UPPER 3",
+   "active": false
+  },
+  {
+   "id": "s_31",
+   "name": "SOUTH UPPER 4",
+   "active": true
+  },
+  {
+   "id": "s_27",
+   "name": "SOUTH LOWER 3",
+   "active": false
+  },
+  {
+   "id": "s_26",
+   "name": "SOUTH LOWER 2",
+   "active": true
+  },
+  {
+   "id": "s_29",
+   "name": "SOUTH LOWER 5",
+   "active": true
+  },
+  {
+   "id": "s_28",
+   "name": "SOUTH LOWER 4",
+   "active": false
+  },
+  {
+   "id": "s_107",
+   "name": "WESTT7",
+   "active": false
+  },
+  {
+   "id": "s_108",
+   "name": "WESTT2",
+   "active": false
+  },
+  {
+   "id": "s_109",
+   "name": "WESTT4",
+   "active": false
+  },
+  {
+   "id": "s_23",
+   "name": "EAST UPPER 8",
+   "active": true
+  },
+  {
+   "id": "s_22",
+   "name": "EAST LOWER 8",
+   "active": true
+  },
+  {
+   "id": "s_25",
+   "name": "SOUTH LOWER 1",
+   "active": true
+  },
+  {
+   "id": "s_24",
+   "name": "EAST UPPER 7",
+   "active": false
+  },
+  {
+   "id": "s_21",
+   "name": "EAST LOWER 7",
+   "active": false
+  },
+  {
+   "id": "EASTU2",
+   "name": "EAST UPPER 2",
+   "active": false
+  },
+  {
+   "id": "s_16",
+   "name": "EAST UPPER 1",
+   "active": true
+  },
+  {
+   "id": "s_110",
+   "name": "WESTT5",
+   "active": false
+  },
+  {
+   "id": "s_15",
+   "name": "EAST LOWER 1",
+   "active": true
+  },
+  {
+   "id": "s_111",
+   "name": "SWEST",
+   "active": false
+  },
+  {
+   "id": "s_112",
+   "name": "GROUND FLOOR STANDING",
+   "active": true
+  },
+  {
+   "id": "s_92",
+   "name": "SOUTH MIDDLE 1",
+   "active": true
+  },
+  {
+   "id": "s_91",
+   "name": "EAST MIDDLE 8",
+   "active": true
+  },
+  {
+   "id": "s_50",
+   "name": "ACCESSIBLE",
+   "active": false
+  },
+  {
+   "id": "s_94",
+   "name": "SOUTH MIDDLE 3",
+   "active": false
+  },
+  {
+   "id": "s_93",
+   "name": "SOUTH MIDDLE 2",
+   "active": true
+  },
+  {
+   "id": "s_90",
+   "name": "EAST MIDDLE 7",
+   "active": false
+  },
+  {
+   "id": "s_12",
+   "name": "ACCESSIBLE",
+   "active": false
+  },
+  {
+   "id": "s_11",
+   "name": "ACCESSIBLE",
+   "active": false
+  },
+  {
+   "id": "s_13",
+   "name": "EAST LOWER 2",
+   "active": false
+  },
+  {
+   "id": "s_52",
+   "name": "ACCESSIBLE",
+   "active": false
+  },
+  {
+   "id": "s_96",
+   "name": "SOUTH MIDDLE 5",
+   "active": false
+  },
+  {
+   "id": "s_51",
+   "name": "ACCESSIBLE",
+   "active": false
+  },
+  {
+   "id": "s_95",
+   "name": "SOUTH MIDDLE 4",
+   "active": false
+  },
+  {
+   "id": "s_10",
+   "name": "NORTH UPPER 1",
+   "active": true
+  },
+  {
+   "id": "s_98",
+   "name": "WEST MIDDLE 1",
+   "active": true
+  },
+  {
+   "id": "s_53",
+   "name": "ACCESSIBLE",
+   "active": false
+  },
+  {
+   "id": "s_97",
+   "name": "WEST MIDDLE 2",
+   "active": true
+  },
+  {
+   "id": "s_1",
+   "name": "NORTH LOWER 5",
+   "active": true
+  },
+  {
+   "id": "s_49",
+   "name": "WEST UPPER 1",
+   "active": true
+  },
+  {
+   "id": "s_48",
+   "name": "WEST UPPER 2",
+   "active": false
+  },
+  {
+   "id": "s_3",
+   "name": "NORTH LOWER 3",
+   "active": true
+  },
+  {
+   "id": "s_2",
+   "name": "NORTH LOWER 4",
+   "active": true
+  },
+  {
+   "id": "s_5",
+   "name": "NORTH LOWER 1",
+   "active": true
+  },
+  {
+   "id": "s_4",
+   "name": "NORTH LOWER 2",
+   "active": true
+  },
+  {
+   "id": "s_7",
+   "name": "NORTH UPPER 4",
+   "active": true
+  },
+  {
+   "id": "s_6",
+   "name": "NORTH UPPER 5",
+   "active": true
+  },
+  {
+   "id": "s_9",
+   "name": "NORTH UPPER 2",
+   "active": true
+  },
+  {
+   "id": "s_8",
+   "name": "NORTH UPPER 3",
+   "active": true
+  },
+  {
+   "id": "s_81",
+   "name": "NORTH MIDDLE 1",
+   "active": true
+  },
+  {
+   "id": "s_80",
+   "name": "NORTH MIDDLE 2",
+   "active": true
+  },
+  {
+   "id": "s_83",
+   "name": "EAST MIDDLE 1",
+   "active": true
+  },
+  {
+   "id": "s_82",
+   "name": "EAST MIDDLE 2",
+   "active": false
+  },
+  {
+   "id": "s_45",
+   "name": "WEST LOWER 1",
+   "active": true
+  },
+  {
+   "id": "s_89",
+   "name": "WEST MIDDLE 3",
+   "active": true
+  },
+  {
+   "id": "s_44",
+   "name": "WEST LOWER 2",
+   "active": true
+  },
+  {
+   "id": "s_88",
+   "name": "WEST MIDDLE 4",
+   "active": true
+  },
+  {
+   "id": "s_47",
+   "name": "WEST UPPER 3",
+   "active": true
+  }
+ ]
+}

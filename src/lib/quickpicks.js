@@ -161,6 +161,17 @@ export function attributesOf(tickets) {
   return Array.from(seen.values()).sort(function (a, b) { return a.label.localeCompare(b.label); });
 }
 
+/** The map's id for a pick's block, from its snapshot picture's address ("image?systemId=HOST_UK&segmentIds=s_112" -> "s_112"), or ''. */
+export function segmentIdOf(snapshotImageUrl) {
+  const match = /[?&]segmentIds=([^&#]+)/.exec(String(snapshotImageUrl == null ? '' : snapshotImageUrl));
+  if (!match) return '';
+  try {
+    return decodeURIComponent(match[1]).split(',')[0].trim();
+  } catch (err) {
+    return '';
+  }
+}
+
 /** A type of pick with no seat: standing or other general admission ("general-seating", "standing"...). */
 function isGeneralKind(kind) {
   return /general|standing|admission/.test(kind);
@@ -245,6 +256,10 @@ export function pickToTicket(pick, options) {
     quality,
     attributes,
     name,
+    // What links a ticket to a block on the venue's map (see lib/map-link.js).
+    description: text(p.description),
+    areaName: text(p.areaName),
+    segmentId: segmentIdOf(p.snapshotImageUrl),
   };
 }
 

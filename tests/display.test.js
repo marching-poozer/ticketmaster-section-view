@@ -3,6 +3,7 @@ import { initDisplay } from '../src/content/display.js';
 import { MSG } from '../src/lib/protocol.js';
 import { saveSettings } from '../src/lib/settings.js';
 import { saveVenue } from '../src/lib/venues.js';
+import { makeCard } from './helpers/cards.js';
 import { buildTicketmasterPage } from './helpers/tm-layout.js';
 import { chrome, flush, peekStorage, seedStorage } from './mocks/chrome.js';
 
@@ -368,6 +369,133 @@ describe('switched off (the toolbar icon\'s menu, or the options page)', () => {
     expect(chip().textContent.trim()).toBe('Tickets');
     toolbar();
     expect(inlineHost().dataset.mode).toBe('view');
+  });
+});
+
+describe('the venue\'s seat map on the page', () => {
+  const SVG = 'http://www.w3.org/2000/svg';
+  /** Ticketmaster's pane (sections BLOCKG and BLOCKA) and a map with a block for each, one for a section we don't have, and one greyed. */
+  function pageWithMap() {
+    buildTicketmasterPage();
+    document.querySelector('[data-testid="quickpicksList"]').append(makeCard({ section: 'BLOCKA', row: 3, price: 130 })); // the pane has BLOCKG; this is a second section
+    const label = Array.from(document.querySelectorAll('span, div')).find((e) => !e.children.length && /^Loaded \d+ of \d+$/.test(e.textContent.trim()));
+    label.textContent = 'Loaded 84 of 84'; // the whole list has loaded: only then is "no tickets left" worth showing
+    document.body.insertAdjacentHTML('beforeend',
+      '<svg data-component="svg" viewBox="0 0 1000 800"><g class="polygons">' +
+      '<path data-component="svg__section" data-section-id="s_1" data-section-name="BLOCKG" data-active="true" d="M0 0L10 0L10 10z"></path>' +
+      '<path data-component="svg__section" data-section-id="s_2" data-section-name="BLOCKA" data-active="true" d="M20 0L30 0L30 10z"></path>' +
+      '<path data-component="svg__section" data-section-id="s_3" data-section-name="BLOCKZ" data-active="true" d="M40 0L50 0L50 10z"></path>' +
+      '<path data-component="svg__section" data-section-id="s_4" data-section-name="BLOCKY" data-active="false" d="M60 0L70 0L70 10z"></path>' +
+      '</g></svg>');
+    return document.querySelector('svg[data-component="svg"]');
+  }
+  const block = (name) => document.querySelector(`path[data-component="svg__section"][data-section-name="${name}"]`);
+  const overlay = () => document.querySelector('svg > g[data-tmsv-overlay]');
+  const veiled = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => p.getAttribute('d'));
+  const listSection = (name) => inlineHost().shadowRoot.querySelector(`.section[data-section="${name}"]`);
+  const search = (text) => {
+    const input = inlineHost().shadowRoot.querySelector('.search');
+    input.value = text;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  it('veils the blocks our filters leave empty, and nothing else', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    expect(veiled()).toEqual([]); // every section has tickets
+
+    search('BLOCKA'); // only BLOCKA is left in our list
+    await settle(1200);
+    expect(veiled()).toEqual([block('BLOCKG').getAttribute('d')]); // BLOCKZ has no section of ours; BLOCKY is greyed by the map itself
+    search('');
+    await settle(1200);
+    expect(veiled()).toEqual([]);
+  });
+
+  it('outlines the block of a closed section the mouse is on in the list, and sends the map the hover for its tooltip', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    const seen = [];
+    ['mouseover', 'mouseenter', 'click'].forEach((t) => block('BLOCKA').addEventListener(t, (e) => seen.push(t + (e.tmsv ? '*' : ''))));
+    listSection('BLOCKA').dispatchEvent(new MouseEvent('mouseenter'));
+    expect(Array.from(overlay().querySelectorAll('path[stroke]')).map((p) => p.getAttribute('d'))).toEqual([block('BLOCKA').getAttribute('d')]);
+    await settle(200);
+    expect(seen).toEqual(['mouseover*', 'mouseenter*']);
+    listSection('BLOCKA').dispatchEvent(new MouseEvent('mouseleave'));
+    expect(overlay().querySelectorAll('path[stroke]')).toHaveLength(0);
+  });
+
+  it('opens the block when the mouse rests on an open section', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    const clicks = [];
+    block('BLOCKA').addEventListener('click', (e) => clicks.push(e.tmsv === true));
+    listSection('BLOCKA').open = true;
+    listSection('BLOCKA').dispatchEvent(new MouseEvent('mouseenter'));
+    await settle(200);
+    expect(clicks).toEqual([]);
+    await settle(400);
+    expect(clicks).toEqual([true]);
+  });
+
+  it('lights up the section in the list when the mouse is on its block, and opens it when the block is clicked', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    block('BLOCKA').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(listSection('BLOCKA').classList.contains('map-hover')).toBe(true);
+    block('BLOCKA').dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+    expect(listSection('BLOCKA').classList.contains('map-hover')).toBe(false);
+
+    expect(listSection('BLOCKA').open).toBe(false);
+    block('BLOCKA').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(listSection('BLOCKA').open).toBe(true);
+  });
+
+  it('can be switched off in the settings, which takes its veil off at once', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    search('BLOCKA');
+    await settle(1200);
+    expect(veiled()).toHaveLength(1);
+    await saveSettings({ mapLink: false });
+    await flush();
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+    await saveSettings({ mapLink: true });
+    await flush();
+    await settle(1200);
+    expect(veiled()).toHaveLength(1);
+  });
+
+  it('takes its overlay off the map when Section View is switched off or destroyed', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    search('BLOCKA');
+    await settle(1200);
+    expect(overlay()).not.toBeNull();
+    await saveSettings({ enabled: false });
+    await flush();
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+    await saveSettings({ enabled: true });
+    await flush();
+    await settle(1200);
+    expect(overlay()).not.toBeNull();
+    display.destroy();
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+  });
+
+  it('is left out when the page has no such map: nothing breaks', async () => {
+    buildTicketmasterPage();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    listSection('BLOCKG').dispatchEvent(new MouseEvent('mouseenter'));
+    await settle(600);
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
   });
 });
 

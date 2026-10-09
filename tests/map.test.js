@@ -1,0 +1,481 @@
+// The map adapter, on a jsdom page with an <svg> built like Ticketmaster's (the real block names and ids of The O2 Belfast).
+import fs from 'node:fs';
+import path from 'node:path';
+import { createMapLink } from '../src/content/map.js';
+import { picksToTickets } from '../src/lib/quickpicks.js';
+import { sectionsOf } from '../src/lib/map-link.js';
+
+const o2 = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/o2-map-blocks.json'), 'utf8'));
+const real = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/quickpicks-resale-standing.json'), 'utf8'));
+const sections = sectionsOf(picksToTickets(real, { currency: '€' })); // NTHU3, STANDING-OVER 14'S ONLY, WESTU1, WESTU7
+
+let link;
+let host;
+
+function buildMap() {
+  document.body.innerHTML = '<div id="map-host"></div>';
+  host = document.getElementById('map-host');
+  host.innerHTML =
+    '<svg data-component="svg" viewBox="0 0 10240 7680" aria-hidden="true"><g class="seats"></g><g class="polygons">' +
+    o2.blocks.map((b, i) => `<path data-component="svg__section" data-section-id="${b.id}" data-section-name="${b.name}" data-active="${b.active}" d="M${i} 0L${i} 10z" class="c${b.active ? 'a' : 'b'}"></path>`).join('') +
+    '</g></svg>';
+  return host.querySelector('svg');
+}
+
+const block = (name, id) => host.querySelector(`path[data-section-name="${name}"]${id ? `[data-section-id="${id}"]` : ''}`);
+const overlay = () => host.querySelector('svg > g[data-tmsv-overlay]');
+const dimmed = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => p.getAttribute('d'));
+const outlined = () => Array.from(overlay().querySelectorAll('path[stroke]')).map((p) => p.getAttribute('d'));
+const dOf = (name, id) => block(name, id).getAttribute('d');
+
+/** Everything loaded, and only these sections left by the filters. */
+const show = (...names) => link.update({ sections, visible: new Set(names), ready: true });
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  if (link) link.destroy();
+  link = null;
+});
+
+describe('with no map on the page', () => {
+  it('does nothing, and picks the map up when it appears', () => {
+    document.body.innerHTML = '<p>no map</p>';
+    link = createMapLink();
+    show('NTHU3');
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+
+    buildMap();
+    vi.advanceTimersByTime(1100);
+    expect(overlay()).not.toBeNull();
+    expect(dimmed().length).toBeGreaterThan(0);
+  });
+
+  it('ignores an svg that is not the map (no blocks in it)', () => {
+    document.body.innerHTML = '<svg data-component="svg"><path d="M0 0"/></svg><svg><path data-component="svg__section" data-section-name="X" d="M0 0"/></svg>';
+    link = createMapLink();
+    show('NTHU3');
+    vi.advanceTimersByTime(1100);
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+  });
+});
+
+describe('dimming the blocks our filters leave empty', () => {
+  it('veils the blocks the map shows as available whose section has no ticket left, and nothing else', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3', 'WESTU1', 'WESTU7'); // the standing section is filtered out
+    expect(dimmed()).toEqual([dOf('GROUND FLOOR STANDING', 's_112')]);
+  });
+
+  it('leaves the blocks it cannot link alone: not knowing is not "empty"', () => {
+    buildMap();
+    link = createMapLink();
+    show(); // nothing visible at all
+    const veiled = dimmed();
+    expect(veiled).toContain(dOf('NORTH UPPER 3'));
+    expect(veiled).toContain(dOf('GROUND FLOOR STANDING', 's_112'));
+    expect(veiled).not.toContain(dOf('NORTH UPPER 2')); // no ticket anywhere in it: no section to link
+    expect(veiled).not.toContain(dOf('SWEST'));
+    expect(veiled).toHaveLength(4); // only the four sections we have
+  });
+
+  it('leaves alone what the map already shows as unavailable', () => {
+    buildMap();
+    block('WEST UPPER 1').setAttribute('data-active', 'false');
+    link = createMapLink();
+    show();
+    expect(dimmed()).not.toContain(dOf('WEST UPPER 1'));
+  });
+
+  it('dims nothing until the whole list has loaded (an empty block then only means "not here yet")', () => {
+    buildMap();
+    link = createMapLink();
+    link.update({ sections, visible: new Set(['NTHU3']), ready: false });
+    expect(dimmed()).toEqual([]);
+    link.update({ sections, visible: new Set(['NTHU3']), ready: true });
+    expect(dimmed().length).toBe(3);
+  });
+
+  it('un-dims when the filters change back', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    expect(dimmed()).toHaveLength(3);
+    show('NTHU3', 'WESTU1', 'WESTU7', "STANDING-OVER 14'S ONLY");
+    expect(dimmed()).toEqual([]);
+  });
+
+  it('follows the map\'s own availability as it changes', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3', 'WESTU7', "STANDING-OVER 14'S ONLY"); // WESTU1 filtered out
+    expect(dimmed()).toEqual([dOf('WEST UPPER 1')]);
+    block('WEST UPPER 1').setAttribute('data-active', 'false'); // the quantity changed: the map greys it itself
+    vi.advanceTimersByTime(1100);
+    expect(dimmed()).toEqual([]);
+  });
+
+  it('takes the veil off when switched off, and puts it back when switched on', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    link.setEnabled(false);
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+    link.setEnabled(true);
+    expect(dimmed().length).toBe(3);
+  });
+});
+
+describe('the overlay', () => {
+  it('is one group inside the map\'s svg (so it zooms with it), last, that never takes the mouse', () => {
+    const svg = buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    expect(overlay().parentNode).toBe(svg);
+    expect(svg.lastElementChild).toBe(overlay());
+    expect(overlay().getAttribute('pointer-events')).toBe('none');
+    overlay().querySelectorAll('path').forEach((p) => expect(p.getAttribute('pointer-events')).toBe('none'));
+    expect(document.querySelectorAll('[data-tmsv-overlay]')).toHaveLength(1);
+  });
+
+  it('never changes the map\'s own blocks', () => {
+    buildMap();
+    const before = host.querySelector('g.polygons').outerHTML;
+    link = createMapLink();
+    show('NTHU3');
+    link.highlight('NTHU3');
+    expect(host.querySelector('g.polygons').outerHTML).toBe(before);
+  });
+
+  it('is not rebuilt when nothing it shows has changed', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const first = overlay().firstElementChild;
+    show('NTHU3');
+    vi.advanceTimersByTime(3500);
+    expect(overlay().firstElementChild).toBe(first);
+  });
+
+  it('is put back if the page removes it, and moved to the end if the page adds to the svg', () => {
+    const svg = buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    overlay().remove();
+    vi.advanceTimersByTime(1100);
+    expect(overlay()).not.toBeNull();
+
+    const later = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    svg.append(later);
+    link.highlight('NTHU3'); // anything that redraws
+    vi.advanceTimersByTime(1100);
+    expect(svg.lastElementChild).toBe(overlay());
+  });
+
+  it('follows the map when the page replaces it', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const old = overlay();
+    buildMap(); // a fresh svg, as after a re-render
+    vi.advanceTimersByTime(1100);
+    expect(old.isConnected).toBe(false);
+    expect(overlay()).not.toBeNull();
+    expect(dimmed().length).toBe(3);
+  });
+});
+
+describe('outlining the block of a section hovered in our list', () => {
+  it('outlines the linked block, and only while it is hovered', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3', 'WESTU1', 'WESTU7', "STANDING-OVER 14'S ONLY");
+    link.highlight('NTHU3');
+    expect(outlined()).toEqual([dOf('NORTH UPPER 3')]);
+    link.highlight(null);
+    expect(outlined()).toEqual([]);
+  });
+
+  it('says what the line is made of: a screen-pixel stroke, so it is as thin when zoomed in', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    link.highlight('NTHU3');
+    const line = overlay().querySelector('path[stroke]');
+    expect(line.getAttribute('vector-effect')).toBe('non-scaling-stroke');
+    expect(line.getAttribute('fill')).toBe('none');
+  });
+
+  it('outlines every block of a section that has several', () => {
+    buildMap();
+    link = createMapLink();
+    link.update({ sections: [{ name: 'ACCESSIBLE', tickets: [] }], visible: new Set(['ACCESSIBLE']), ready: true });
+    link.highlight('ACCESSIBLE');
+    expect(outlined().length).toBeGreaterThan(3);
+  });
+
+  it('does nothing for a section no block is linked to', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    link.highlight('NOWHERE');
+    expect(outlined()).toEqual([]);
+  });
+});
+
+describe('the mouse on the map', () => {
+  const over = (el, related = null) => el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: related }));
+  const out = (el, related = null) => el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: related }));
+
+  it('says which section a hovered block belongs to, and when the mouse leaves it', () => {
+    buildMap();
+    const onHover = vi.fn();
+    link = createMapLink({ onHover });
+    show('NTHU3');
+    over(block('NORTH UPPER 3'));
+    expect(onHover).toHaveBeenLastCalledWith('NTHU3');
+    out(block('NORTH UPPER 3'), host);
+    expect(onHover).toHaveBeenLastCalledWith(null);
+    expect(onHover).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not repeat itself, and goes straight from one block to the next', () => {
+    buildMap();
+    const onHover = vi.fn();
+    link = createMapLink({ onHover });
+    show('NTHU3');
+    over(block('NORTH UPPER 3'));
+    over(block('NORTH UPPER 3'));
+    out(block('NORTH UPPER 3'), block('WEST UPPER 1')); // into a block: its own mouseover will say
+    over(block('WEST UPPER 1'));
+    expect(onHover.mock.calls.map((c) => c[0])).toEqual(['NTHU3', 'WESTU1']);
+  });
+
+  it('says nothing special for a block that is no section of ours (it ends the last hover)', () => {
+    buildMap();
+    const onHover = vi.fn();
+    link = createMapLink({ onHover });
+    show('NTHU3');
+    over(block('NORTH UPPER 3'));
+    over(block('SWEST'));
+    expect(onHover.mock.calls.map((c) => c[0])).toEqual(['NTHU3', null]);
+  });
+
+  it('says which section a clicked block is, and ignores one that is none of ours', () => {
+    buildMap();
+    const onClick = vi.fn();
+    link = createMapLink({ onClick });
+    show('NTHU3');
+    block('NORTH UPPER 3').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    block('SWEST').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(onClick.mock.calls).toEqual([['NTHU3']]);
+  });
+
+  it('never stops the map\'s own handling of the click', () => {
+    const svg = buildMap();
+    const theirs = vi.fn();
+    svg.addEventListener('click', theirs);
+    link = createMapLink({ onClick: vi.fn() });
+    show('NTHU3');
+    block('NORTH UPPER 3').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(theirs).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('hovering a section in our list: what the map is made to do', () => {
+  const TYPES = ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove', 'pointerout', 'pointerleave', 'mouseout', 'mouseleave', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+
+  /** Every event of any of those kinds that reaches `path`, in order. */
+  function record(path) {
+    const events = [];
+    TYPES.forEach((type) => path.addEventListener(type, (e) => events.push({ type: e.type, bubbles: e.bubbles, x: e.clientX, y: e.clientY, ours: e.tmsv === true })));
+    return events;
+  }
+
+  it('shows a closed section\'s block the way a mouse resting on it would, after a short pause', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const path = block('NORTH UPPER 3');
+    path.getBoundingClientRect = () => ({ left: 10, top: 20, width: 100, height: 50 });
+    const events = record(path);
+
+    link.hover('NTHU3', false);
+    expect(events).toEqual([]); // not at once: the mouse may only be passing
+    vi.advanceTimersByTime(160);
+    expect(events.map((e) => e.type)).toEqual(['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'pointermove', 'mousemove']);
+    expect(events.every((e) => e.x === 60 && e.y === 45)).toBe(true); // the middle of the block: where the tooltip goes
+    expect(events.find((e) => e.type === 'mouseover').bubbles).toBe(true); // the framework hears hovers at the root
+    expect(events.find((e) => e.type === 'mouseenter').bubbles).toBe(false); // as enter events do
+  });
+
+  it('takes the hover back when the mouse leaves the section', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const path = block('NORTH UPPER 3');
+    link.hover('NTHU3', false);
+    vi.advanceTimersByTime(160);
+    const events = record(path);
+    link.hover(null, false);
+    expect(events.map((e) => e.type)).toEqual(['pointerout', 'pointerleave', 'mouseout', 'mouseleave']);
+    link.hover(null, false);
+    expect(events).toHaveLength(4); // once
+  });
+
+  it('does nothing if the mouse has moved on before the pause is over', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const events = record(block('NORTH UPPER 3'));
+    link.hover('NTHU3', false);
+    vi.advanceTimersByTime(100);
+    link.hover(null, false);
+    vi.advanceTimersByTime(1000);
+    expect(events).toEqual([]);
+  });
+
+  it('opens an open section\'s block with a click, after a longer pause, exactly once', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const events = record(block('NORTH UPPER 3'));
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(300);
+    expect(events).toEqual([]); // sweeping down the list must not make the map lurch
+    vi.advanceTimersByTime(150);
+    expect(events.map((e) => e.type)).toEqual(['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
+    expect(events.filter((e) => e.type === 'click')).toHaveLength(1);
+    vi.advanceTimersByTime(5000);
+    expect(events).toHaveLength(5);
+  });
+
+  it('takes a hover back before opening, so the map is not left showing a tooltip', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const path = block('NORTH UPPER 3');
+    link.hover('NTHU3', false);
+    vi.advanceTimersByTime(160);
+    const events = record(path);
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(450);
+    expect(events.map((e) => e.type)).toEqual(['pointerout', 'pointerleave', 'mouseout', 'mouseleave', 'pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']);
+  });
+
+  it('marks what it sends as its own, and does not hear itself (no hover or click feeding back into the list)', () => {
+    buildMap();
+    const onHover = vi.fn();
+    const onClick = vi.fn();
+    link = createMapLink({ onHover, onClick });
+    show('NTHU3');
+    const events = record(block('NORTH UPPER 3'));
+    link.hover('NTHU3', false);
+    vi.advanceTimersByTime(160);
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(450);
+    expect(events.length).toBeGreaterThan(5);
+    expect(events.every((e) => e.ours)).toBe(true);
+    expect(onHover).not.toHaveBeenCalled();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('outlines the block at once, whatever the pause', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3', 'WESTU1', 'WESTU7', "STANDING-OVER 14'S ONLY");
+    link.hover('NTHU3', false);
+    expect(outlined()).toEqual([dOf('NORTH UPPER 3')]);
+    link.hover(null, false);
+    expect(outlined()).toEqual([]);
+  });
+
+  it('acts on the main map, not the overview of it (they both have the block)', () => {
+    buildMap();
+    // a second, small svg with the same blocks: the overview in the corner of the opened map
+    const mini = document.createElement('div');
+    mini.innerHTML = host.querySelector('svg').outerHTML;
+    document.body.append(mini);
+    const [main, overview] = document.querySelectorAll('svg[data-component="svg"]');
+    main.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 700 });
+    overview.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 70 });
+    link = createMapLink();
+    show('NTHU3');
+    const inMain = record(main.querySelector('path[data-section-name="NORTH UPPER 3"]'));
+    const inOverview = record(overview.querySelector('path[data-section-name="NORTH UPPER 3"]'));
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(450);
+    expect(inMain.filter((e) => e.type === 'click')).toHaveLength(1);
+    expect(inOverview).toEqual([]);
+  });
+
+  it('falls back to the overview when the main map has no such block (an opened map shows seats, not blocks)', () => {
+    buildMap();
+    const mini = document.createElement('div');
+    mini.innerHTML = host.querySelector('svg').outerHTML;
+    document.body.append(mini);
+    const [main, overview] = document.querySelectorAll('svg[data-component="svg"]');
+    main.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 700 });
+    overview.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 70 });
+    main.querySelector('path[data-section-name="NORTH UPPER 3"]').remove();
+    link = createMapLink();
+    show('NTHU3');
+    const inOverview = record(overview.querySelector('path[data-section-name="NORTH UPPER 3"]'));
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(450);
+    expect(inOverview.filter((e) => e.type === 'click')).toHaveLength(1);
+  });
+
+  it('veils the empty blocks on every map it finds, the overview too', () => {
+    buildMap();
+    const mini = document.createElement('div');
+    mini.innerHTML = host.querySelector('svg').outerHTML;
+    document.body.append(mini);
+    link = createMapLink();
+    show('NTHU3');
+    const overlays = document.querySelectorAll('svg > g[data-tmsv-overlay]');
+    expect(overlays).toHaveLength(2);
+    overlays.forEach((o) => expect(o.querySelectorAll('path[fill-opacity]')).toHaveLength(3));
+  });
+
+  it('does nothing for a section no block is linked to, and nothing when switched off', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const events = record(block('NORTH UPPER 3'));
+    expect(() => { link.hover('NOWHERE', true); vi.advanceTimersByTime(500); }).not.toThrow();
+    link.setEnabled(false);
+    link.hover('NTHU3', true);
+    vi.advanceTimersByTime(500);
+    expect(events).toEqual([]);
+  });
+
+  it('forgets a pending hover when destroyed', () => {
+    buildMap();
+    link = createMapLink();
+    show('NTHU3');
+    const events = record(block('NORTH UPPER 3'));
+    link.hover('NTHU3', true);
+    link.destroy();
+    vi.advanceTimersByTime(1000);
+    expect(events).toEqual([]);
+  });
+});
+
+describe('destroy', () => {
+  it('takes the overlay and the listeners away and stops looking', () => {
+    buildMap();
+    const onHover = vi.fn();
+    link = createMapLink({ onHover });
+    show('NTHU3');
+    link.destroy();
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+    block('NORTH UPPER 3').dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    expect(onHover).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(5000);
+    expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+  });
+});

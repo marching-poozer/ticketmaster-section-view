@@ -8,6 +8,7 @@ import { createBadgeEditor } from '../lib/badge-editor.js';
 import { describeBadges, groupBadges } from '../lib/badges.js';
 import { formatPrice } from '../lib/currency.js';
 import { h } from '../lib/dom.js';
+import { scrollIntoScroller } from '../lib/scroll.js';
 import { describeSeats } from '../lib/seats.js';
 import { formatBestTicketLabel } from '../lib/sections.js';
 import { headerScale } from '../lib/size.js';
@@ -106,22 +107,35 @@ function rowGroupNode(rowGroup, sectionName, onTicketClick) {
   );
 }
 
-function sectionNode(group, sort, expanded, onTicketClick) {
+/** `mouse.section`: the section the mouse is on in this list (null when none). */
+function sectionNode(group, sort, expanded, onTicketClick, onSectionHover, mouse) {
   const details = h(
     'details',
     {
       class: 'section',
+      'data-section': group.name,
       on: {
         // The list is rebuilt on every update; remember what the user had open.
         toggle: function () {
           if (details.open) expanded.add(group.name);
           else expanded.delete(group.name);
+          // Opened while the mouse is on it: the map should now open it too.
+          if (details.open && mouse.section === group.name && onSectionHover) onSectionHover(group.name, true);
+        },
+        // The mouse on a section (its header, or its tickets when open) is the mouse on its block on the venue's map.
+        mouseenter: function () {
+          mouse.section = group.name;
+          if (onSectionHover) onSectionHover(group.name, details.open);
+        },
+        mouseleave: function () {
+          if (mouse.section === group.name) mouse.section = null;
+          if (onSectionHover) onSectionHover(null, false);
         },
       },
     },
     h(
       'summary',
-      {},
+{},
       h(
         'span',
         { class: 'section-name' },
@@ -468,6 +482,17 @@ export function createView(handlers, version) {
 
   // Names of sections the user has expanded; survives list re-renders.
   const expanded = new Set();
+  let highlightedSection = null; // the section the mouse is over on the map
+  const mouse = { section: null }; // the section the mouse is on in this list
+  const onSectionHover = function (name, open) { if (handlers.onSectionHover) handlers.onSectionHover(name, open === true); };
+  const sectionElement = function (name) {
+    return Array.from(content.querySelectorAll('.section')).find(function (el) { return el.getAttribute('data-section') === name; }) || null;
+  };
+  const applySectionHighlight = function () {
+    content.querySelectorAll('.section.map-hover').forEach(function (el) { el.classList.remove('map-hover'); });
+    const el = highlightedSection === null ? null : sectionElement(highlightedSection);
+    if (el) el.classList.add('map-hover');
+  };
 
   return {
     root,
@@ -634,8 +659,25 @@ export function createView(handlers, version) {
 
     renderGroups(groups, sort, onTicketClick) {
       content.replaceChildren(
-        ...groups.map(function (g) { return sectionNode(g, sort, expanded, onTicketClick); })
+        ...groups.map(function (g) { return sectionNode(g, sort, expanded, onTicketClick, onSectionHover, mouse); })
       );
+      applySectionHighlight();
+    },
+
+    /** Mark a section (or none, with null) as the one the mouse is over on the venue's map. */
+    highlightSection(name) {
+      highlightedSection = name || null;
+      applySectionHighlight();
+    },
+
+    /** Open a section and bring it into view (scrolling its scroller, never the page). Returns whether it is in the list. */
+    openSection(name) {
+      const el = sectionElement(name);
+      if (!el) return false;
+      el.open = true;
+      expanded.add(name);
+      scrollIntoScroller(el);
+      return true;
     },
   };
 }

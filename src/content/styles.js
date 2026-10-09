@@ -188,6 +188,7 @@ export const VIEW_CSS = `
   border-radius: ${u(6)}; transition: background-color 0.15s;
 }
 .section > summary::-webkit-details-marker { display: none; }
+.section.map-hover { border-color: #ffb300; box-shadow: 0 0 0 2px #ffb300; }
 .section > summary:hover { background: #f1f5f9; }
 .section-name { display: flex; align-items: center; min-width: 0; }
 .section-name::before {

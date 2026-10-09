@@ -126,6 +126,7 @@
         "src/content/capture.js",
         "src/content/api-source.js",
         "src/content/page-reader.js",
+        "src/content/map.js",
         "src/content/view.js",
         "src/content/styles.js",
         "src/content/tm-page.js",
