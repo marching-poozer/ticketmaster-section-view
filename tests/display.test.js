@@ -413,6 +413,22 @@ describe('the venue\'s seat map on the page', () => {
     expect(veiled()).toEqual([]);
   });
 
+  it('says in our header what the grey blocks mean, while there are any', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    const note = () => inlineHost().shadowRoot.querySelector('.map-note');
+    expect(note().hidden).toBe(true); // nothing is greyed
+
+    search('BLOCKA');
+    await settle(1200);
+    expect(note().hidden).toBe(false);
+    expect(note().textContent).toBe('Seat map: 1 block greyed, with no tickets matching your filters.');
+    search('');
+    await settle(1200);
+    expect(note().hidden).toBe(true);
+  });
+
   it('outlines the block of a closed section the mouse is on in the list, and sends the map the hover for its tooltip', async () => {
     pageWithMap();
     await start({ loadMode: 'scroll' });

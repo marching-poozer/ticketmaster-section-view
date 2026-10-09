@@ -639,6 +639,30 @@ describe('the venue\'s seat map', () => {
     expect(app.openSection('NOWHERE')).toBe(false);
   });
 
+  it('tells the map when the mouse goes onto a ticket, with the ticket, and off it', () => {
+    sampleCards();
+    const onTicketHover = vi.fn();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', onTicketHover });
+    document.body.append(app.root);
+    app.start();
+    app.openSection('101');
+    const card = qa('.section[data-section="101"] .ticket')[0];
+    card.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(onTicketHover).toHaveBeenLastCalledWith(expect.objectContaining({ section: '101' }));
+    card.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(onTicketHover).toHaveBeenLastCalledWith(null);
+  });
+
+  it('shows what the map\'s grey blocks mean, when it is told to', () => {
+    sampleCards();
+    make();
+    app.start();
+    app.setMapNote('Seat map: 2 blocks greyed, with no tickets matching your filters.');
+    expect(q('.map-note').textContent).toContain('2 blocks greyed');
+    app.setMapNote(null);
+    expect(q('.map-note').hidden).toBe(true);
+  });
+
   it('works without a map to tell (no callbacks)', () => {
     sampleCards();
     make();

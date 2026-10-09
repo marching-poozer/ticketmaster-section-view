@@ -51,6 +51,7 @@ export const VIEW_CSS = `
 }
 .icon-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.18); }
 .counter { font-size: ${uh(11)}; color: rgba(255, 255, 255, 0.85); margin-top: ${uh(1)}; }
+.map-note { font-size: ${uh(10)}; color: rgba(255, 255, 255, 0.75); margin-top: ${uh(1)}; font-style: italic; }
 .status {
   background: rgba(255, 255, 255, 0.22); padding: ${uh(3)} ${uh(8)}; border-radius: ${uh(10)};
   font-size: ${uh(10)}; font-weight: 700; white-space: nowrap;

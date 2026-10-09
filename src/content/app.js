@@ -17,9 +17,10 @@ import { createView } from './view.js';
 /** `readerDeps` is for tests (see createPageReader). */
 /**
  * `onSections({ sections, visible, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
- * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it.
+ * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it;
+ * `onTicketHover(ticket | null)` likewise for a ticket.
  */
-export function createApp({ settings, version, readerDeps, onSections, onSectionHover }) {
+export function createApp({ settings, version, readerDeps, onSections, onSectionHover, onTicketHover }) {
   // Behaviour that depends on where the view is hosted; see configure().
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
@@ -102,6 +103,9 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
       },
       onSectionHover(name, open) {
         if (onSectionHover) onSectionHover(name, open);
+      },
+      onTicketHover(ticket) {
+        if (onTicketHover) onTicketHover(ticket);
       },
       onSaveVenue({ firstRows, frontRows, badges }) {
         if (!venue) return;
@@ -267,6 +271,11 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     /** The venue's map: the mouse is over (or has left) a block of this section. */
     highlightSection(name) {
       view.highlightSection(name);
+    },
+
+    /** A line about the venue's seat map under the counter (or none, with null). */
+    setMapNote(text) {
+      view.setMapNote(text);
     },
 
     /** The venue's map: a block of this section was clicked: open it in the list. */

@@ -36,7 +36,8 @@ function badgeNode(b, iconOnly) {
  * No seats (standing) leaves just the ticket type; no badges, no second line. The row is still in the card as
  * visually hidden text, for a screen reader that reads the card on its own.
  */
-function ticketRow(ticket, sectionName, onTicketClick) {
+/** `hooks`: { click(ticket), hover(ticket | null) }. */
+function ticketRow(ticket, sectionName, hooks) {
   const groups = groupBadges(describeBadges(ticket, sectionName));
   const seats = describeSeats(ticket);
   const seatBadges = groups.seat.length > 0 ? h('span', { class: 'badges' }, groups.seat.map(function (b) { return badgeNode(b, false); })) : null;
@@ -57,7 +58,15 @@ function ticketRow(ticket, sectionName, onTicketClick) {
 
   return h(
     'div',
-    { class: 'ticket', on: { click: function () { onTicketClick(ticket); } } },
+    {
+      class: 'ticket',
+      on: {
+        click: function () { hooks.click(ticket); },
+        // The mouse on a ticket is the mouse on its seats on the venue's map (when it is zoomed in to them).
+        mouseenter: function () { if (hooks.hover) hooks.hover(ticket); },
+        mouseleave: function () { if (hooks.hover) hooks.hover(null); },
+      },
+    },
     h('span', { class: 'ticket-title visually-hidden', text: ticket.rowLabel || ticket.title }),
     h('div', { class: 'ticket-main' }, seatLine, badgeLine),
     h(
@@ -76,7 +85,7 @@ function ticketRow(ticket, sectionName, onTicketClick) {
  * A row of a section: its heading (the row, where it is in its tier, how many tickets if more than one) and the
  * tickets in it.
  */
-function rowGroupNode(rowGroup, sectionName, onTicketClick) {
+function rowGroupNode(rowGroup, sectionName, hooks) {
   const badges = describeBadges(rowGroup.topTicket, sectionName).filter(function (b) { return b.group === 'row'; });
   return h(
     'div',
@@ -102,13 +111,13 @@ function rowGroupNode(rowGroup, sectionName, onTicketClick) {
     h(
       'div',
       { class: 'row-tickets' },
-      rowGroup.tickets.map(function (t) { return ticketRow(t, sectionName, onTicketClick); })
+      rowGroup.tickets.map(function (t) { return ticketRow(t, sectionName, hooks); })
     )
   );
 }
 
 /** `mouse.section`: the section the mouse is on in this list (null when none). */
-function sectionNode(group, sort, expanded, onTicketClick, onSectionHover, mouse) {
+function sectionNode(group, sort, expanded, hooks, onSectionHover, mouse) {
   const details = h(
     'details',
     {
@@ -151,7 +160,7 @@ function sectionNode(group, sort, expanded, onTicketClick, onSectionHover, mouse
     h(
       'div',
       { class: 'tickets' },
-      group.rows.map(function (r) { return rowGroupNode(r, group.name, onTicketClick); })
+      group.rows.map(function (r) { return rowGroupNode(r, group.name, hooks); })
     )
   );
   details.open = expanded.has(group.name);
@@ -165,6 +174,7 @@ function sectionNode(group, sort, expanded, onTicketClick, onSectionHover, mouse
  */
 export function createView(handlers, version) {
   const counter = h('div', { class: 'counter', text: 'Total Loaded: 0' });
+  const mapNote = h('div', { class: 'map-note', hidden: true });
   const status = h('span', { class: 'status', text: 'Checking...' });
 
   const search = h('input', {
@@ -451,7 +461,8 @@ export function createView(handlers, version) {
           'div',
           {},
           h('div', { class: 'title' }, h('span', { class: 'title-text', text: 'Section View' }), h('span', { class: 'version', text: 'v' + version })),
-          counter
+          counter,
+          mapNote
         ),
         h(
           'div',
@@ -484,6 +495,7 @@ export function createView(handlers, version) {
   const expanded = new Set();
   let highlightedSection = null; // the section the mouse is over on the map
   const mouse = { section: null }; // the section the mouse is on in this list
+  const onTicketHover = function (ticket) { if (handlers.onTicketHover) handlers.onTicketHover(ticket); };
   const onSectionHover = function (name, open) { if (handlers.onSectionHover) handlers.onSectionHover(name, open === true); };
   const sectionElement = function (name) {
     return Array.from(content.querySelectorAll('.section')).find(function (el) { return el.getAttribute('data-section') === name; }) || null;
@@ -591,6 +603,12 @@ export function createView(handlers, version) {
       }
     },
 
+    /** A line under the counter about the venue's seat map (what its grey blocks mean), or none with null. */
+    setMapNote(text) {
+      mapNote.hidden = !text;
+      mapNote.textContent = text || '';
+    },
+
     renderQuantity(value) {
       qty.textContent = String(value);
       minus.disabled = value <= MIN_TICKETS;
@@ -659,7 +677,7 @@ export function createView(handlers, version) {
 
     renderGroups(groups, sort, onTicketClick) {
       content.replaceChildren(
-        ...groups.map(function (g) { return sectionNode(g, sort, expanded, onTicketClick, onSectionHover, mouse); })
+        ...groups.map(function (g) { return sectionNode(g, sort, expanded, { click: onTicketClick, hover: onTicketHover }, onSectionHover, mouse); })
       );
       applySectionHighlight();
     },

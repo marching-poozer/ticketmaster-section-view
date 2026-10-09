@@ -17,6 +17,12 @@ import { createInline } from './inline.js';
 import { createMapLink } from './map.js';
 import { createPane } from './pane.js';
 
+/** What the grey blocks on the venue's map mean, for the line under our counter (nothing when none are grey). */
+function mapNote(summary) {
+  if (!summary || summary.veiled === 0) return null;
+  return 'Seat map: ' + summary.veiled + ' block' + (summary.veiled === 1 ? '' : 's') + ' greyed, with no tickets matching your filters.';
+}
+
 /** Start Section View on this page. Resolves to a handle with destroy() (used by tests). */
 export async function initDisplay() {
   let settings = await loadSettings();
@@ -34,8 +40,12 @@ export async function initDisplay() {
     const app = createApp({
       settings,
       version: chrome.runtime.getManifest().version,
-      onSections(state) { map.update(state); },
+      onSections(state) {
+        map.update(state);
+        app.setMapNote(mapNote(map.summary()));
+      },
       onSectionHover(name, open) { map.hover(name, open); },
+      onTicketHover(ticket) { map.hoverTicket(ticket); },
     });
     const pane = createPane(app, settings, { active: false });
     const inline = createInline(app, {

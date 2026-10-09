@@ -16,6 +16,7 @@ function makeHandlers() {
     onShowOriginal: vi.fn(),
     onOpenSettings: vi.fn(),
     onSectionHover: vi.fn(),
+    onTicketHover: vi.fn(),
   };
 }
 
@@ -905,11 +906,43 @@ describe('createView', () => {
       expect(view.openSection('NOWHERE')).toBe(false);
     });
 
+    it('tells when the mouse goes onto a ticket and off it (its seats are shown on the map)', () => {
+      const { view, handlers, q } = make();
+      view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      view.openSection('NTHU3');
+      const card = q('.ticket');
+      card.dispatchEvent(new MouseEvent('mouseenter'));
+      expect(handlers.onTicketHover).toHaveBeenLastCalledWith(expect.objectContaining({ section: 'NTHU3', rowName: '1' }));
+      card.dispatchEvent(new MouseEvent('mouseleave'));
+      expect(handlers.onTicketHover).toHaveBeenLastCalledWith(null);
+    });
+
+    it('still selects a ticket on a click, as before', () => {
+      const { view, q } = make();
+      const onTicketClick = vi.fn();
+      view.renderGroups(groupsFor('NTHU3'), 'price', onTicketClick);
+      q('.ticket').click();
+      expect(onTicketClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows a line about the map under the counter, and takes it away', () => {
+      const { view, q } = make();
+      expect(q('.map-note').hidden).toBe(true);
+      view.setMapNote('Seat map: 3 blocks greyed, with no tickets matching your filters.');
+      expect(q('.map-note').hidden).toBe(false);
+      expect(q('.map-note').textContent).toContain('3 blocks greyed');
+      view.setMapNote(null);
+      expect(q('.map-note').hidden).toBe(true);
+      expect(q('.map-note').textContent).toBe('');
+    });
+
     it('does not need the handler (a host with no map)', () => {
       const { view, handlers, q } = make();
       delete handlers.onSectionHover;
       view.renderGroups(groupsFor('NTHU3'), 'price', () => {});
+      delete handlers.onTicketHover;
       expect(() => q('.section').dispatchEvent(new MouseEvent('mouseenter'))).not.toThrow();
+      expect(() => q('.ticket').dispatchEvent(new MouseEvent('mouseenter'))).not.toThrow();
     });
   });
 
