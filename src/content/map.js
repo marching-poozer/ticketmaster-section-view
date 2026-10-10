@@ -13,7 +13,9 @@
 // go on working). Being in the svg, it follows the map's zoom and pan for free.
 //
 //   - Blocks that Ticketmaster shows as available but that have no ticket left after OUR filters are greyed (as its own
-//     unavailable blocks are), on the overview and the whole map alike, never over the seats of a zoomed map.
+//     unavailable blocks are), on the overview and the whole map alike, never over the seats of a zoomed map. While the list is
+//     still loading this is PROVISIONAL (a lighter grey, redrawn as tickets arrive: blocks light up as matching tickets are
+//     found); when the whole list has loaded it is final.
 //   - Hovering a block calls onHover(section name | null); clicking one calls onClick(section name).
 //   - Hovering a section in our list (hover(name, open)) outlines its block(s) and, after a moment's pause:
 //       closed section: sends the block the mouse events of a hover, so the map shows its own tooltip (view photo, price);
@@ -207,12 +209,15 @@ export function createMapLink(options) {
   function draw(binding) {
     const zoomed = showsSeats(binding);
     // Over the seats of a zoomed map the block outlines are not the point: the seats are.
-    const dim = enabled && ready && !zoomed ? blocksToDim(current(binding), binding.links, visible, linkingComplete(binding.links, sections)) : [];
+    // Loading: a block with no matching ticket YET is greyed lightly, and lights up when one arrives; once everything has loaded the
+    // grey is final, and a block no section matches is only greyed if the linking is complete (see linkingComplete).
+    const known = sections.length > 0; // with no tickets yet there is nothing to say
+    const dim = enabled && known && !zoomed ? blocksToDim(current(binding), binding.links, visible, ready ? linkingComplete(binding.links, sections) : true) : [];
     const outline = enabled && !zoomed && highlighted !== null ? binding.links.sectionToBlocks.get(highlighted) || [] : [];
     const rings = enabled && zoomed ? seatsToRing(binding) : [];
-    const greySeats = enabled && ready && zoomed ? seatsToGrey(binding) : [];
+    const greySeats = enabled && zoomed ? seatsToGrey(binding) : []; // a seat whose ticket has loaded and is filtered out: grey now; one not loaded yet is left alone
     const labelled = enabled && !zoomed && Date.now() < labelsUntil;
-    const signature = JSON.stringify([dim, outline, binding.blocks.length, rings, greySeats, labelled]);
+    const signature = JSON.stringify([dim, outline, binding.blocks.length, rings, greySeats, labelled, ready]);
     if (binding.overlay && binding.overlay.isConnected && signature === binding.drawn) return;
     binding.drawn = signature;
 
@@ -233,7 +238,7 @@ export function createMapLink(options) {
       return cover;
     });
     const shapes = seatShapes.concat(dim.map(function (i) {
-      return shape(binding, i, { fill: '#8c8f99', 'fill-opacity': '0.88' }); // grey like the map's own unavailable blocks
+      return shape(binding, i, { fill: '#8c8f99', 'fill-opacity': ready ? '0.88' : '0.45' }); // grey like the map's own unavailable blocks; lighter while still loading
     }), outline.map(function (i) {
       return shape(binding, i, { fill: 'none', stroke: '#ffb300', 'stroke-width': '4', 'stroke-linejoin': 'round', 'vector-effect': 'non-scaling-stroke' });
     }), rings.map(function (seat) {
@@ -316,14 +321,17 @@ export function createMapLink(options) {
     if (!map || !map.blocks.length) return null;
     const blocks = current(map);
     const complete = linkingComplete(map.links, sections);
-    const veiled = ready ? blocksToDim(blocks, map.links, visible, complete).length : 0;
+    const veiled = sections.length ? blocksToDim(blocks, map.links, visible, ready ? complete : true).length : 0;
+    const matched = blocks.filter(function (b, i) { const s = map.links.blockToSection.get(i); return b.active && s !== undefined && visible.has(s); }).length;
     const unlinked = blocks.filter(function (b, i) { return b.active && !map.links.blockToSection.has(i); }).map(function (b) { return b.name + (b.id ? ' [' + b.id + ']' : ''); });
     const linkedSections = new Set(map.links.blockToSection.values());
     return {
       blocks: blocks.length,
       linked: map.links.blockToSection.size,
+      ready, // the whole list has loaded (until then the grey is provisional)
       complete, // every section of ours has its block: a block with no section then has no tickets, and is greyed
       veiled,
+      matched, // available blocks that have tickets after the filters
       unlinked,
       sectionsWithoutBlock: sections.filter(function (s) { return !linkedSections.has(s.name); }).map(function (s) {
         const described = (s.tickets.find(function (t) { return t.description; }) || {}).description; // what the API calls its tier: to see why it did not link
@@ -620,9 +628,8 @@ export function createMapLink(options) {
         const section = main.links.blockToSection.get(i);
         let state;
         if (!b.active) state = 'unavailable (the map greys it)';
-        else if (!ready) state = 'list not complete';
-        else if (section === undefined) state = complete ? 'greyed (no section of ours: none has tickets there)' : 'LEFT ALONE (no section of ours, and some section has no block)';
-        else state = shownOf(section) ? 'shown (the section has tickets after the filters)' : 'greyed (the section has none after the filters)';
+        else if (section === undefined) state = !ready ? 'provisionally greyed (no section of ours yet: the list is still loading)' : complete ? 'greyed (no section of ours: none has tickets there)' : 'LEFT ALONE (no section of ours, and some section has no block)';
+        else state = shownOf(section) ? 'shown (the section has tickets after the filters)' : (ready ? 'greyed' : 'provisionally greyed') + ' (the section has none after the filters' + (ready ? '' : ' so far') + ')';
         return { name: b.name, id: b.id, available: b.active, section: section === undefined ? null : section, state };
       }) : [];
       return {

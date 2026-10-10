@@ -38,9 +38,12 @@ async function reportOnMap(app, map) {
   }
 }
 
-/** What the grey blocks on the venue's map mean, for the line under our counter (nothing when none are grey). */
+/** What is going on with the venue's map, for the line under our counter: that it is updating while tickets load, then what its grey blocks mean (nothing when none are grey). */
 function mapNote(summary) {
-  if (!summary || summary.veiled === 0) return null;
+  if (!summary) return null;
+  // Still loading: the map is being updated as tickets arrive (the grey is provisional).
+  if (!summary.ready) return 'Seat map: updating as tickets load: ' + summary.matched + ' block' + (summary.matched === 1 ? ' has' : 's have') + ' matching tickets so far.';
+  if (summary.veiled === 0) return null;
   return 'Seat map: ' + summary.veiled + ' block' + (summary.veiled === 1 ? '' : 's') + ' greyed: no tickets there with the current filters.';
 }
 

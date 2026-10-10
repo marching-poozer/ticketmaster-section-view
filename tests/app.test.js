@@ -48,7 +48,7 @@ describe('showing the page\'s tickets', () => {
     app.start();
 
     expect(sectionNames()).toEqual(['Section PIT', 'Section 101', 'Section 102']);
-    expect(q('.status').textContent).toBe('✓ All 4 Loaded (Scroll)'); // the app here reads the cards
+    expect(q('.status').textContent).toBe('✓ All 4 Loaded (Scraping)'); // the app here reads the cards
     expect(q('.counter').textContent).toBe('Total Loaded: 4 options (1 per offer)');
   });
 
@@ -942,7 +942,7 @@ describe('tickets read from the list API', () => {
     expect(q('.status').textContent).toBe('⏳ Loading 20/84 (API)');
   });
 
-  it('says (Scroll) once it has fallen back to scrolling, and why on hover', () => {
+  it('says (Scraping) once it has fallen back to scrolling, and why on hover', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     addLoadedLabel(1, 1);
     addCards({ section: 'BLOCKE', row: 23, price: 94.8 });
@@ -951,7 +951,7 @@ describe('tickets read from the list API', () => {
     app = createApp({ settings: normalizeSettings({ loadMode: 'api' }), version: '1.2.3', readerDeps: { apiSource } });
     document.body.append(app.root);
     app.start();
-    expect(q('.status').textContent).toBe('✓ All 1 Loaded (Scroll)');
+    expect(q('.status').textContent).toBe('✓ All 1 Loaded (Scraping)');
     expect(q('.status').title).toContain('reading it failed: HTTP 403');
   });
 

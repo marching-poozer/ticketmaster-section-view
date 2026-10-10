@@ -1542,17 +1542,17 @@ describe('createView', () => {
     });
   });
 
-  it('says how the tickets are being loaded on the status chip: (API) or (Scroll)', () => {
+  it('says how the tickets are being loaded on the status chip: (API) or (Scraping)', () => {
     const { view, q } = make();
     view.renderStatus({ loaded: 311, total: 311, isComplete: true }, 'api');
     expect(q('.status').textContent).toBe('✓ All 311 Loaded (API)');
     view.renderStatus({ loaded: 311, total: 311, isComplete: true }, 'scroll');
-    expect(q('.status').textContent).toBe('✓ All 311 Loaded (Scroll)');
+    expect(q('.status').textContent).toBe('✓ All 311 Loaded (Scraping)');
     view.renderStatus({ loaded: 120, total: 311, isComplete: false }, 'api');
     expect(q('.status').textContent).toBe('⏳ Loading 120/311 (API)');
     expect(q('.status').title).toBe('Reading Ticketmaster\'s ticket list directly');
     view.renderStatus({ loaded: 120, total: 311, isComplete: false }, 'scroll');
-    expect(q('.status').textContent).toBe('⏳ Loading 120/311 (Scroll)');
+    expect(q('.status').textContent).toBe('⏳ Loading 120/311 (Scraping)');
     view.renderStatus({ loaded: 3, total: 0, isComplete: false }, 'api');
     expect(q('.status').textContent).toBe('⏳ Loading 3 (API)');
   });

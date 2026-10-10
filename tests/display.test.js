@@ -375,11 +375,11 @@ describe('switched off (the toolbar icon\'s menu, or the options page)', () => {
 describe('the venue\'s seat map on the page', () => {
   const SVG = 'http://www.w3.org/2000/svg';
   /** Ticketmaster's pane (sections BLOCKG and BLOCKA) and a map with a block for each, one for a section we don't have, and one greyed. */
-  function pageWithMap() {
+  function pageWithMap({ loaded = true } = {}) {
     buildTicketmasterPage();
     document.querySelector('[data-testid="quickpicksList"]').append(makeCard({ section: 'BLOCKA', row: 3, price: 130 })); // the pane has BLOCKG; this is a second section
     const label = Array.from(document.querySelectorAll('span, div')).find((e) => !e.children.length && /^Loaded \d+ of \d+$/.test(e.textContent.trim()));
-    label.textContent = 'Loaded 84 of 84'; // the whole list has loaded: only then is "no tickets left" worth showing
+    if (loaded) label.textContent = 'Loaded 84 of 84'; // the whole list has loaded (else the page says "Loaded 20 of 84")
     document.body.insertAdjacentHTML('beforeend',
       '<svg data-component="svg" viewBox="0 0 1000 800"><g class="polygons">' +
       '<path data-component="svg__section" data-section-id="s_1" data-section-name="BLOCKG" data-active="true" d="M0 0L10 0L10 10z"></path>' +
@@ -429,6 +429,28 @@ describe('the venue\'s seat map on the page', () => {
     search('');
     await settle(1200);
     expect(note().textContent).toBe('Seat map: 1 block greyed: no tickets there with the current filters.');
+  });
+
+  it('updates the map as tickets load: a note says so, the grey is lighter, and it firms up once everything has loaded', async () => {
+    pageWithMap({ loaded: false }); // "Loaded 20 of 84": the page has only the start of its list
+    await start({ loadMode: 'scroll' });
+    await settle(1200);
+    const note = () => inlineHost().shadowRoot.querySelector('.map-note');
+    const opacities = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => Number(p.getAttribute('fill-opacity')));
+    search('BLOCKA'); // only BLOCKA matches so far
+    await settle(1200);
+    expect(note().hidden).toBe(false);
+    expect(note().textContent).toBe('Seat map: updating as tickets load: 1 block has matching tickets so far.');
+    expect(opacities().length).toBeGreaterThan(0);
+    expect(opacities().every((o) => o < 0.6)).toBe(true); // provisional
+
+    // the page has now loaded everything
+    const label = Array.from(document.querySelectorAll('span, div')).find((e) => !e.children.length && /^Loaded \d+ of \d+$/.test(e.textContent.trim()));
+    label.textContent = 'Loaded 84 of 84';
+    document.body.append(document.createElement('i'));
+    await settle(1200);
+    expect(note().textContent).toBe('Seat map: 2 blocks greyed: no tickets there with the current filters.');
+    expect(opacities().every((o) => o > 0.8)).toBe(true); // final
   });
 
   it('outlines the block of a closed section the mouse is on in the list, and sends the map the hover for its tooltip', async () => {

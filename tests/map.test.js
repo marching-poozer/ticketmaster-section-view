@@ -93,13 +93,47 @@ describe('dimming the blocks our filters leave empty', () => {
     expect(dimmed()).not.toContain(dOf('WEST UPPER 1'));
   });
 
-  it('dims nothing until the whole list has loaded (an empty block then only means "not here yet")', () => {
+  const veilOpacities = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => Number(p.getAttribute('fill-opacity')));
+
+  it('greys blocks provisionally, lightly, while the list is still loading, and finally once it has loaded', () => {
     buildMap();
-    link = createMapLink();
-    link.update({ sections, visible: new Set(['NTHU3']), ready: false });
-    expect(dimmed()).toEqual([]);
+    link = createMapLink({ log: () => {} });
+    link.update({ sections, visible: new Set(['NTHU3']), ready: false }); // still loading
+    expect(dimmed().length).toBeGreaterThan(0);
+    expect(veilOpacities().every((o) => o < 0.6)).toBe(true); // a lighter grey: "none yet"
     link.update({ sections, visible: new Set(['NTHU3']), ready: true });
     expect(dimmed().length).toBe(3);
+    expect(veilOpacities().every((o) => o > 0.8)).toBe(true); // final
+  });
+
+  it('lights blocks up as the tickets for them are found', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    const west = realSections.find((s) => s.name === 'WESTU1');
+    const north = realSections.find((s) => s.name === 'NTHU3');
+    link.update({ sections: [north], visible: new Set(), ready: false }); // one section known so far, and the filters leave nothing in it
+    expect(dimmed()).toContain(dOf('NORTH UPPER 3')); // no matching ticket yet
+    link.update({ sections: [north, west], visible: new Set(['NTHU3']), ready: false }); // a matching ticket arrives
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 3')); // it lights up
+    expect(dimmed()).toContain(dOf('WEST UPPER 1')); // the other section's tickets do not match
+    link.update({ sections: [north, west], visible: new Set(['NTHU3', 'WESTU1']), ready: false });
+    expect(dimmed()).not.toContain(dOf('WEST UPPER 1')); // and now it does
+  });
+
+  it('says nothing before any ticket is known (an empty list has nothing to show yet)', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [], visible: new Set(), ready: false });
+    expect(dimmed()).toEqual([]);
+  });
+
+  it('leaves blocks no section matches yet greyed lightly too, while loading: they have no tickets that are known', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [realSections[0]], visible: new Set(['NTHU3']), ready: false });
+    expect(dimmed()).toContain(dOf('NORTH UPPER 2')); // nothing loaded for it yet
+    link.update({ sections: [...realSections, { name: 'UNMAPPED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2')); // loaded: the linking is not complete, so it is left alone after all
   });
 
   it('un-dims when the filters change back', () => {
@@ -564,7 +598,10 @@ describe('diagnosing how the map and the list were matched', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false });
-    expect(link.diagnose().blocks.find((b) => b.name === 'NORTH UPPER 3').state).toBe('list not complete');
+    const of = (name) => link.diagnose().blocks.find((b) => b.name === name).state;
+    expect(of('NORTH UPPER 3')).toMatch(/^shown/);
+    expect(of('WEST UPPER 1')).toMatch(/^provisionally greyed .*so far/);
+    expect(of('NORTH UPPER 2')).toMatch(/^provisionally greyed .*still loading/);
   });
 
   it('says, per section of ours, how many tickets it has and shows, its blocks, and what the API says of it', () => {
@@ -705,11 +742,13 @@ describe('a block with no section of ours', () => {
     expect(link.summary().veiled).toBe(activeBlocks - 1);
   });
 
-  it('is not greyed before the whole list has loaded, complete or not', () => {
+  it('is greyed only lightly before the whole list has loaded, and firmly once it has', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false });
-    expect(dimmed()).toEqual([]);
+    expect(Array.from(overlay().querySelectorAll('path[fill-opacity]')).every((p) => Number(p.getAttribute('fill-opacity')) < 0.6)).toBe(true);
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
+    expect(Array.from(overlay().querySelectorAll('path[fill-opacity]')).every((p) => Number(p.getAttribute('fill-opacity')) > 0.8)).toBe(true);
   });
 
   it('with no sections at all there is nothing to trust: nothing is greyed', () => {
@@ -1116,12 +1155,22 @@ describe('seats on the zoomed map and the tickets of our list', () => {
       expect(greyed()).toEqual([]);
     });
 
-    it('greys nothing until the whole list has loaded', () => {
+    it('greys the seat of a ticket that has loaded and is filtered out at once, while the rest loads', () => {
       buildZoomed();
       link = createMapLink({ log: () => {} });
-      link.update(stateFor([ticketJ], false));
-      expect(greyed()).toEqual([]);
+      link.update(stateFor([ticketJ], false)); // still loading: row K has loaded, and is filtered out
+      expect(greyed()).toHaveLength(2);
       link.update(stateFor([ticketJ], true));
+      expect(greyed()).toHaveLength(2);
+    });
+
+    it('leaves alone the seats whose tickets have not loaded yet', () => {
+      buildZoomed();
+      link = createMapLink({ log: () => {} });
+      // only row J has loaded so far: row K's seats are on sale on the map, but we know nothing of them yet
+      link.update({ sections: [{ name: 'EASTL8', tickets: [ticketJ] }], visible: new Set(['EASTL8']), matching: [ticketJ], ready: false });
+      expect(greyed()).toEqual([]);
+      link.update({ sections: [{ name: 'EASTL8', tickets: [ticketJ, ticketK] }], visible: new Set(['EASTL8']), matching: [ticketJ], ready: false }); // row K arrives, filtered out
       expect(greyed()).toHaveLength(2);
     });
 

@@ -658,11 +658,11 @@ export function createView(handlers, version) {
      */
     /**
      * `how` is how the tickets are being loaded: 'api' (read from Ticketmaster's list request) or 'scroll' (the page's
-     * list scrolled). It is on the chip, "✓ All 311 Loaded (API)", so it is always clear which. `fallback` is why it is
+     * list scrolled and its cards scraped). It is on the chip, "✓ All 311 Loaded (API)" / "(Scraping)", so it is always clear which. `fallback` is why it is
      * scrolling when the API was meant to be used.
      */
     renderStatus(loadStatus, how, fallback) {
-      const mode = how === 'api' ? ' (API)' : how === 'scroll' ? ' (Scroll)' : '';
+      const mode = how === 'api' ? ' (API)' : how === 'scroll' ? ' (Scraping)' : '';
       if (how === 'api') status.title = loadStatus.isComplete ? 'Read directly from Ticketmaster\'s ticket list' : 'Reading Ticketmaster\'s ticket list directly';
       else status.title = 'Loaded by scrolling Ticketmaster\'s ticket list' + (fallback ? ' (not read directly: ' + fallback + ')' : '');
       if (!loadStatus.isComplete) {

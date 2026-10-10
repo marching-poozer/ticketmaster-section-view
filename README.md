@@ -13,7 +13,7 @@ Above: the view in Ticketmaster's own ticket pane. The pills filter by seats, qu
 ## What it does
 
 - **Lists every ticket, grouped by section, then by row.** Each row shows its seats (`Seats 125-126 (2 seats)`), Ticketmaster's own ticket type, a quality badge (`💎 Top 10% (0.48)`), and the price with small badges for cheapest overall / best in its block / resale (with the markup on hover).
-- **Reads Ticketmaster's own ticket-list request** instead of scrolling the page to load everything. It asks the way a person scrolling would (one page at a time, a moment apart), shows tickets as they arrive, and checks what it read against the cards on the page. If Ticketmaster refuses, or the two disagree, it falls back to scrolling. The status chip says which: `✓ All 311 Loaded (API)` or `(Scroll)`.
+- **Reads Ticketmaster's own ticket-list request** instead of scrolling the page to load everything. It asks the way a person scrolling would (one page at a time, a moment apart), shows tickets as they arrive, and checks what it read against the cards on the page. If Ticketmaster refuses, or the two disagree, it falls back to scrolling. The status chip says which: `✓ All 311 Loaded (API)`, or `(Scraping)` when it is reading the page's cards instead.
 - **Filters**, each with a live count:
   - **Seats:** any, the 1st row of each tier, or the first N rows.
   - **Quality:** the best 10% / 25% / 50% of tickets by Ticketmaster's seat quality score.
@@ -28,7 +28,7 @@ Above: the view in Ticketmaster's own ticket pane. The pills filter by seats, qu
 
 Where the page has Ticketmaster's interactive seat map (like The O2 Belfast's), the list and the map work together. Ticketmaster's own map is never altered: everything is drawn on top of it.
 
-- **The map follows your filters.** Blocks with no ticket left after your filters are greyed, the way Ticketmaster greys its own unavailable blocks (a line in the header says how many). Zoomed in, the seats of tickets your filters leave out are greyed too.
+- **The map follows your filters.** Blocks with no ticket left after your filters are greyed, the way Ticketmaster greys its own unavailable blocks (a line in the header says how many). Zoomed in, the seats of tickets your filters leave out are greyed too. It updates **as tickets load**: blocks are greyed lightly while the list is still arriving and light up as matching tickets are found, then the grey firms up once everything has loaded.
 - **Hover a section in the list:** its block is outlined on the map, and the map shows its own tooltip (the view photo and the price).
 - **Rest on an open section:** the map opens it. A map that is zoomed in already zooms out first, then in at the new place.
 - **Hover a ticket:** its seats are ringed on the zoomed map.
@@ -68,7 +68,7 @@ Click the ⚙ in the view's header (or open the extension's options page) for:
 
 ## If something is off
 
-- **The chip says `(Scroll)`.** Ticketmaster refused the direct read, or its data disagreed with the page, so the view fell back to scrolling. Hover the chip for the reason. After a refusal it leaves Ticketmaster's list API alone for 15 minutes.
+- **The chip says `(Scraping)`.** Ticketmaster refused the direct read, or its data disagreed with the page, so the view fell back to scrolling. Hover the chip for the reason. After a refusal it leaves Ticketmaster's list API alone for 15 minutes.
 - **A block on the seat map looks wrong.** Press **Map report** (see above).
 - **More detail.** The extension logs to the browser console with the prefix `[Section View]`: what it read, what it could not match, and why.
 
