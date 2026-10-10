@@ -190,7 +190,7 @@ describe('stepQuantity', () => {
     expect(minus).toHaveBeenCalled();
   });
 
-  it('pauses auto-scroll while stepping and resumes afterwards', async () => {
+  it('pauses auto-scroll while stepping, and until the quantity has settled, then resumes', async () => {
     vi.useFakeTimers();
     addLoadedLabel(2, 9);
     addStepper(2);
@@ -201,8 +201,54 @@ describe('stepQuantity', () => {
     reader.stepQuantity(1);
     window.scrollTo.mockClear();
     await settle(450);
-    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(window.scrollTo).not.toHaveBeenCalled(); // (the press is still being made)
 
+    await settle(1500);
+    expect(window.scrollTo).not.toHaveBeenCalled(); // (and the page has not stopped changing the list yet: wait for it)
+
+    await settle(1500);
+    expect(window.scrollTo).toHaveBeenCalled();
+  });
+
+  it('starts scrolling the new list only once, after the last of several steps (2, 3, 4, 5 is one list, not four)', async () => {
+    vi.useFakeTimers();
+    addLoadedLabel(2, 9);
+    addStepper(2);
+    sampleCards();
+    const { reader } = setup();
+    reader.start();
+    window.scrollTo.mockClear();
+
+    reader.stepQuantity(1);
+    await settle(700);
+    reader.stepQuantity(1);
+    await settle(700);
+    reader.stepQuantity(1);
+    await settle(700);
+    await settle(1200); // 1.9 s after the last press: not settled yet
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    await settle(1500);
+    expect(window.scrollTo).toHaveBeenCalled();
+  });
+
+  it('holds the scroll loop for a quantity changed some other way too (the page\'s own control, by hand)', async () => {
+    vi.useFakeTimers();
+    addLoadedLabel(2, 9);
+    addStepper(2);
+    sampleCards();
+    const { reader } = setup();
+    reader.start();
+    await settle(700);
+    window.scrollTo.mockClear();
+
+    const change = (qty) => { document.querySelector('[role="spinbutton"]').setAttribute('aria-valuenow', String(qty)); document.body.append(document.createElement('i')); };
+    change(3);
+    await settle(700);
+    change(4);
+    await settle(700);
+    change(5);
+    await settle(1200);
+    expect(window.scrollTo).not.toHaveBeenCalled();
     await settle(1500);
     expect(window.scrollTo).toHaveBeenCalled();
   });

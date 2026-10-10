@@ -13,7 +13,7 @@ Above: the view in Ticketmaster's own ticket pane. The pills filter by seats, qu
 ## What it does
 
 - **Lists every ticket, grouped by section, then by row.** Each row shows its seats (`Seats 125-126 (2 seats)`), Ticketmaster's own ticket type, a quality badge (`💎 Top 10% (0.48)`), and the price with small badges for cheapest overall / best in its block / resale (with the markup on hover).
-- **Reads Ticketmaster's own ticket-list request** instead of scrolling the page to load everything. It asks the way a person scrolling would (one page at a time, a moment apart), shows tickets as they arrive, and checks what it read against the cards on the page. If Ticketmaster refuses, or the two disagree, it falls back to scrolling. The status chip says which: `✓ All 311 Loaded (API)`, or `(Scraping)` when it is reading the page's cards instead.
+- **Reads Ticketmaster's own ticket-list request** instead of scrolling the page to load everything. It asks the way a person scrolling would (one page at a time, a moment apart), waits for you to stop changing the quantity or a filter before it reads the new list (stepping 2, 3, 4, 5 is one read, of 5), shows tickets as they arrive, and checks what it read against the cards on the page. If Ticketmaster refuses, or the two disagree, it falls back to scrolling. The status chip says which: `✓ All 311 Loaded (API)`, or `(Scraping)` when it is reading the page's cards instead.
 - **Filters**, each with a live count:
   - **Seats:** any, the 1st row of each tier, or the first N rows.
   - **Quality:** the best 10% / 25% / 50% of tickets by Ticketmaster's seat quality score.

@@ -24,6 +24,7 @@ const RETRY_DELAYS_MS = [400, 1500]; // a page that failed (not refused): the fi
 const REFUSAL_DELAYS_MS = [4000, 12000, 30000]; // a page refused part-way: back off, then try that page again
 const MAX_SLOWDOWN = 4; // each refusal that later clears doubles the gap, up to 4x
 const MAX_RETRY_AFTER_MS = 60 * 1000;
+const SETTLE_MS = 1500; // how long the page must stay on one list (no quantity or filter changing) before a changed list is read: stepping 2, 3, 4, 5 is one read, of 5
 
 // The response headers worth showing when a request is refused (never cookies, which a page can't read anyway).
 const DETAIL_HEADER = /^(content-type|server|retry-after|www-authenticate|akamai-[a-z0-9-]+|x-[a-z0-9-]*(error|reference|request|akamai|block)[a-z0-9-]*)$/i;
@@ -243,12 +244,13 @@ export async function fetchAllPicks(url, options) {
 
 /**
  * `onChange()` is called whenever `state()` changes. The state:
- *   phase:     'waiting' (no list request seen yet) | 'loading' | 'ready' | 'failed'
+ *   phase:     'waiting' (no list request seen yet) | 'settling' (the page changed the list, e.g. its quantity, and has not stopped changing it) |
+ *              'loading' | 'ready' | 'failed'
  *   signature: which list it is of (listSignature); qty: that list's quantity
  *   loaded / total: progress; error: why it 'failed'
  *   partial:   the picks read so far while 'loading' (in order, from the start of the list)
  *   picks / currency: what the API sent, once 'ready'; tickets: those as tickets (picksToTickets)
- * `deps.capture`, `deps.fetchPage`, `deps.pause`, `deps.retryDelaysMs`, `deps.refusalDelaysMs` and `deps.gapMs` are for tests.
+ * `deps.capture`, `deps.fetchPage`, `deps.pause`, `deps.retryDelaysMs`, `deps.refusalDelaysMs`, `deps.gapMs` and `deps.settleMs` are for tests.
  */
 export function createApiSource({ onChange, deps } = {}) {
   const d = deps || {};
@@ -256,9 +258,13 @@ export function createApiSource({ onChange, deps } = {}) {
   const fetchPage = d.fetchPage || fetchListPage;
   const pause = d.pause || storagePause();
 
+  const settleMs = typeof d.settleMs === 'number' ? d.settleMs : SETTLE_MS;
   let running = false;
   let unsubscribe = null;
   let controller = null;
+  let wanted = null; // { url, signature }: the list the page asked for last (later pages of a list do not count)
+  let started = false; // has a list been read yet? The first is read at once; a changed one waits for the page to settle
+  let settleTimer = null;
   const fresh = function () { return { phase: 'waiting', signature: null, qty: null, loaded: 0, total: 0, tickets: [], picks: [], partial: [], currency: '', error: null }; };
   let current = fresh();
 
@@ -313,13 +319,29 @@ export function createApiSource({ onChange, deps } = {}) {
     }
   }
 
-  /** A list request has been seen: load its list, unless that is the list we already have (a later page of it). */
+  /**
+   * A list request has been seen. The same list again is a later page of it (or one we already failed on: don't hammer it): nothing to
+   * do. The first list is read at once. A DIFFERENT list means the page has changed the quantity or a filter, perhaps the first of
+   * several presses of its + button: stop reading the old list now, and read the new one only when the page has stopped changing it.
+   */
   function onRequest(url) {
     if (!running) return;
     const signature = listSignature(url);
-    // The same list again is a later page of it (or one we already failed on: don't hammer it).
-    if (!signature || signature === current.signature) return;
-    load(url, signature);
+    if (!signature || (wanted && signature === wanted.signature)) return;
+    wanted = { url, signature };
+    if (!started) {
+      started = true;
+      load(url, signature);
+      return;
+    }
+    if (controller) controller.abort();
+    controller = null;
+    set(Object.assign(fresh(), { phase: 'settling', qty: listQuantity(url) }));
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(function () {
+      settleTimer = null;
+      if (running && wanted) load(wanted.url, wanted.signature);
+    }, settleMs);
   }
 
   return {
@@ -327,6 +349,8 @@ export function createApiSource({ onChange, deps } = {}) {
       if (running) return;
       running = true;
       current = fresh();
+      wanted = null;
+      started = false;
       unsubscribe = capture.subscribe(onRequest);
       capture.start();
       const seen = capture.latest();
@@ -337,6 +361,8 @@ export function createApiSource({ onChange, deps } = {}) {
       running = false;
       if (unsubscribe) unsubscribe();
       unsubscribe = null;
+      clearTimeout(settleTimer);
+      settleTimer = null;
       if (controller) controller.abort();
       controller = null;
     },
@@ -348,7 +374,13 @@ export function createApiSource({ onChange, deps } = {}) {
     /** Give up on the list the page is showing and read it again (e.g. after the cross-check failed once for stale data). */
     reload() {
       const url = capture.latest();
-      if (running && url) load(url, listSignature(url));
+      if (running && url) {
+        clearTimeout(settleTimer);
+        settleTimer = null;
+        wanted = { url, signature: listSignature(url) };
+        started = true;
+        load(url, wanted.signature);
+      }
     },
   };
 }

@@ -75,6 +75,24 @@ describe('while the API is being read', () => {
     expect(window.scrollTo).not.toHaveBeenCalled();
   });
 
+  it('keeps showing the cards, without giving up on the API, while the page is still changing the list (the quantity being stepped)', async () => {
+    vi.useFakeTimers();
+    pageCards();
+    const api = fakeApi({ phase: 'settling', qty: 3 });
+    const { reader, last } = setup(api);
+    reader.start();
+    await settle(2000);
+    await vi.advanceTimersByTimeAsync(6000); // well past the time a page is given to ask for its list
+    await poke();
+
+    expect(reader.sourceInfo().gaveUp).toBeNull(); // not "the page was not seen asking for its list": it asked, and is still changing it
+    expect(last().source).toBe('scroll');
+    expect(last().tickets).toHaveLength(3);
+    expect(last().status.isComplete).toBe(false);
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(api.source.stop).not.toHaveBeenCalled();
+  });
+
   describe('part-way through a long list', () => {
     it('shows the tickets read so far, not as complete, once they agree with the cards', async () => {
       vi.useFakeTimers();

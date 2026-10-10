@@ -5,6 +5,8 @@ import { peekStorage, seedStorage } from './mocks/chrome.js';
 
 const URL1 = 'https://www.ticketmaster.ie/api/quickpicks/EVT/list?sort=price&offset=40&qty=2&primary=true&resale=true&tids=A%2CB';
 const offsetOf = (url) => Number(new URL(url).searchParams.get('offset'));
+const SETTLE = 30; // ms the source waits for the page to stop changing its list, in these tests
+const pastSettle = () => new Promise((r) => setTimeout(r, SETTLE + 20));
 
 /** A fake API of `total` picks with `size` per page; records every request. */
 function fakeApi(total, size, { currency } = {}) {
@@ -305,7 +307,7 @@ describe('createApiSource', () => {
     }
     const capture = createCapture({ Observer });
     const changes = vi.fn();
-    const source = createApiSource({ onChange: changes, deps: { capture, fetchPage: api.fetchPage, retryDelaysMs: [1, 1], refusalDelaysMs: [1, 1, 1], gapMs: () => 0 } });
+    const source = createApiSource({ onChange: changes, deps: { capture, fetchPage: api.fetchPage, retryDelaysMs: [1, 1], refusalDelaysMs: [1, 1, 1], gapMs: () => 0, settleMs: SETTLE } });
     const see = (url) => observers[0].cb({ getEntries: () => [{ name: url }] });
     const settled = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 5)); };
     return { api, capture, source, see, changes, settled, entries };
@@ -364,7 +366,7 @@ describe('createApiSource', () => {
     expect(source.state().phase).toBe('ready');
   });
 
-  it('reads again when the quantity changes, dropping the old tickets at once', async () => {
+  it('reads again when the quantity changes, dropping the old tickets at once, once the page has stopped changing it', async () => {
     const { source, see, settled, api } = setup(45, 20);
     source.start();
     see(URL1);
@@ -372,24 +374,140 @@ describe('createApiSource', () => {
     const before = api.requests.length;
 
     see(URL1.replace('qty=2', 'qty=3'));
-    expect(source.state()).toMatchObject({ phase: 'loading', qty: 3, tickets: [] });
+    expect(source.state()).toMatchObject({ phase: 'settling', qty: 3, tickets: [] }); // the old list is gone, the new one not asked for yet
+    expect(api.requests.length).toBe(before);
+    await pastSettle();
+    expect(api.requests.length).toBeGreaterThan(before); // it has started reading the new list
+    expect(['loading', 'ready']).toContain(source.state().phase);
     await settled();
     expect(source.state()).toMatchObject({ phase: 'ready', qty: 3 });
-    expect(api.requests.length).toBeGreaterThan(before);
+  });
+
+  it('reads the first list at once: there is nothing for the page to have changed', async () => {
+    const { source, see, api, settled } = setup(45, 20);
+    source.start();
+    see(URL1);
+    expect(source.state().phase).toBe('loading');
+    await settled(); // (a few milliseconds: far less than the wait a changed list gets)
+    expect(api.requests.length).toBeGreaterThan(0);
+    expect(source.state().phase).toBe('ready');
+  });
+
+  it('reads only the last of several changes made one after the other (the + button pressed 2, 3, 4, 5)', async () => {
+    const { source, see, settled, api } = setup(45, 20);
+    source.start();
+    see(URL1);
+    await settled();
+    const before = api.requests.length;
+    ['3', '4', '5'].forEach((q) => see(URL1.replace('qty=2', 'qty=' + q)));
+    expect(source.state()).toMatchObject({ phase: 'settling', qty: 5 });
+    await pastSettle();
+    await settled();
+    const quantities = api.requests.slice(before).map((u) => new URL(u).searchParams.get('qty'));
+    expect(new Set(quantities)).toEqual(new Set(['5'])); // never a request for 3 or 4
+    expect(source.state()).toMatchObject({ phase: 'ready', qty: 5 });
+  });
+
+  it('starts the wait again with each change, so it is the quiet that counts, not the first change', async () => {
+    const { source, see, settled, api } = setup(45, 20);
+    source.start();
+    see(URL1);
+    await settled();
+    const before = api.requests.length;
+    see(URL1.replace('qty=2', 'qty=3'));
+    await new Promise((r) => setTimeout(r, SETTLE - 10));
+    see(URL1.replace('qty=2', 'qty=4')); // just before the first wait is up
+    await new Promise((r) => setTimeout(r, SETTLE - 10));
+    expect(api.requests.length).toBe(before); // nothing yet: the second change started it again
+    await pastSettle();
+    expect(source.state()).toMatchObject({ qty: 4 });
+    expect(['loading', 'ready']).toContain(source.state().phase);
+  });
+
+  it('stops reading the old list as soon as the page changes it (it is no use any more)', async () => {
+    const slow = fakeApi(200, 20);
+    const { capture } = setup();
+    const requested = [];
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const fetchPage = async (url) => { requested.push(offsetOf(url)); if (offsetOf(url) === 20) await gate; return slow.fetchPage(url); };
+    const observers = [];
+    class Observer { constructor(cb) { this.cb = cb; observers.push(this); } observe() {} disconnect() {} }
+    const cap = createCapture({ Observer });
+    const src = createApiSource({ deps: { capture: cap, fetchPage, retryDelaysMs: [], gapMs: () => 0, settleMs: SETTLE } });
+    const see = (url) => observers[0].cb({ getEntries: () => [{ name: url }] });
+    src.start();
+    see(URL1);
+    await new Promise((r) => setTimeout(r, 10)); // page 2 of the first list is waiting
+    see(URL1.replace('qty=2', 'qty=3'));
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(requested).toEqual([0, 20]); // page 3 of the old list was never asked for
+    src.stop();
+    void capture;
+  });
+
+  it('is not moved by later pages of the list it is waiting for, or by its own pages arriving', async () => {
+    const { source, see, settled, api } = setup(45, 20);
+    source.start();
+    see(URL1);
+    await settled();
+    see(URL1.replace('qty=2', 'qty=3'));
+    see(URL1.replace('qty=2', 'qty=3').replace('offset=40', 'offset=20')); // the page loading more of the new list
+    see(URL1.replace('qty=2', 'qty=3').replace('offset=40', 'offset=0'));
+    expect(source.state()).toMatchObject({ phase: 'settling', qty: 3 });
+    await pastSettle();
+    await settled();
+    expect(source.state()).toMatchObject({ phase: 'ready', qty: 3 });
+    void api;
+  });
+
+  it('settles on the quantity the page came back to', async () => {
+    const { source, see, settled } = setup(45, 20);
+    source.start();
+    see(URL1);
+    await settled();
+    see(URL1.replace('qty=2', 'qty=3'));
+    see(URL1); // back to 2 before the wait is up
+    await pastSettle();
+    await settled();
+    expect(source.state()).toMatchObject({ phase: 'ready', qty: 2 });
+  });
+
+  it('does not read anything if it is stopped while waiting, and reads at once when asked to read again', async () => {
+    const { source, see, settled, api } = setup(45, 20);
+    source.start();
+    see(URL1);
+    await settled();
+    const before = api.requests.length;
+    see(URL1.replace('qty=2', 'qty=3'));
+    source.stop();
+    await pastSettle();
+    expect(api.requests.length).toBe(before);
+
+    const second = setup(45, 20);
+    second.source.start();
+    second.see(URL1);
+    await second.settled();
+    second.see(URL1.replace('qty=2', 'qty=3'));
+    second.source.reload(); // (the page reader asking for the current list again)
+    expect(second.source.state().phase).toBe('loading');
   });
 
   it('abandons a read that is overtaken by a new list', async () => {
     const slow = fakeApi(45, 20);
-    const { source, see, settled, capture } = setup();
+    const { see, settled, capture } = setup();
     let release;
     const gate = new Promise((r) => { release = r; });
     const seenQty = [];
     const fetchPage = async (url) => { seenQty.push(new URL(url).searchParams.get('qty')); if (new URL(url).searchParams.get('qty') === '2') await gate; return slow.fetchPage(url); };
-    const src = createApiSource({ deps: { capture, fetchPage, retryDelaysMs: [], gapMs: () => 0 } });
+    const src = createApiSource({ deps: { capture, fetchPage, retryDelaysMs: [], gapMs: () => 0, settleMs: SETTLE } });
     src.start();
     see(URL1);
     see(URL1.replace('qty=2', 'qty=3'));
     release();
+    await settled();
+    await pastSettle();
     await settled();
     expect(src.state()).toMatchObject({ phase: 'ready', qty: 3 });
     src.stop();

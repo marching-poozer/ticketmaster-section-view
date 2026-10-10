@@ -22,6 +22,7 @@ const VIP_TRIES = 15; // up to ~3s for the VIP packages to appear once their row
 const LOAD_STEP_MS = 400;
 const VIP_WAIT_MS = 20000; // how long to wait for the list to say it has loaded before opening the VIP row anyway
 const LOAD_TRIES = 40; // up to ~16s of scrolling to bring one ticket's card into the page
+const SCROLL_SETTLE_MS = 1500; // how long the page's quantity must stay put before the scroll loop starts again on the new list
 const QUANTITY_HOLD_MS = 12000; // how long reading the list waits for the ticket quantity to be set (see quantity-default.js)
 
 function sleep(ms) {
@@ -45,6 +46,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
   let lastSent = null;
   let debounceTimer = null;
   let autoScrollInterval = null;
+  let scrollSettleTimer = null; // while set, the quantity has just changed and the scroll loop waits for the page to settle
   let lastScrollLogged = null; // the loaded count last written to the console by the scroll loop
 
   let loadMode = initialMode === 'scroll' ? 'scroll' : 'api'; // 'api' | 'scroll'
@@ -83,6 +85,19 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
   });
 
   // --- auto-scroll (loads every ticket by scrolling the lazy list) ---------
+
+  /**
+   * The page's list was changed (its quantity, by us or by the user): the scroll loop has nothing to do on the list it was reading, and
+   * should not start on the next until the page has stopped changing it (stepping 2, 3, 4, 5 is one list, not four).
+   */
+  function restartScrollWhenSettled() {
+    stopAutoScroll();
+    clearTimeout(scrollSettleTimer);
+    scrollSettleTimer = setTimeout(function () {
+      scrollSettleTimer = null;
+      if (running && !usingApi()) startAutoScroll();
+    }, SCROLL_SETTLE_MS);
+  }
 
   function stopAutoScroll() {
     if (autoScrollInterval) {
@@ -163,6 +178,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
       giveUp('reading it failed: ' + a.error);
       return null;
     }
+    if (a.phase === 'settling') return null; // the page is still changing the list (the quantity, a filter): the cards meanwhile, no verdict
     if (a.phase === 'waiting') {
       if (domTickets.length > 0 && Date.now() - startedAt > NO_REQUEST_GRACE_MS) giveUp('the page was not seen asking for its list');
       return null;
@@ -230,8 +246,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
 
     const qty = tm.getActiveQuantity();
     if (lastQty !== null && lastQty !== qty && !usingApi()) {
-      console.log(LOG_PREFIX + 'Observed quantity change (' + lastQty + ' -> ' + qty + '). Resetting scroll loop.');
-      startAutoScroll();
+      console.log(LOG_PREFIX + 'Observed quantity change (' + lastQty + ' -> ' + qty + '). Resetting scroll loop once it settles.');
+      restartScrollWhenSettled();
     }
     lastQty = qty;
 
@@ -253,7 +269,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
         status = Object.assign({}, status, { isComplete: false });
       }
     }
-    if (!usingApi() && !status.isComplete && !autoScrollInterval) startAutoScroll();
+    if (!usingApi() && !status.isComplete && !autoScrollInterval && !scrollSettleTimer) startAutoScroll();
 
     // Compare on the data alone: elements are re-created by Ticketmaster often
     // and say nothing about whether what the user sees has changed.
@@ -369,7 +385,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
   /** Step Ticketmaster's own quantity control by +1 / -1, pausing auto-scroll while the page reacts. */
   function stepQuantity(delta) {
     const started = tm.stepQuantity(delta, function () {
-      if (!usingApi()) startAutoScroll();
+      if (!usingApi()) restartScrollWhenSettled();
       scheduleSnapshot();
     });
     if (started && !usingApi()) stopAutoScroll();
@@ -427,6 +443,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
     running = false;
     observer.disconnect();
     stopAutoScroll();
+    clearTimeout(scrollSettleTimer);
+    scrollSettleTimer = null;
     api.stop();
     timers.forEach(clearTimeout);
     timers = [];
@@ -446,6 +464,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
     if (!running) return;
     api.stop();
     stopAutoScroll();
+    clearTimeout(scrollSettleTimer);
+    scrollSettleTimer = null;
     timers.forEach(clearTimeout);
     timers = [];
     beginLoading();
