@@ -24,6 +24,7 @@ export async function init() {
   const mapBox = document.getElementById('map-link');
   const autoZoomBox = document.getElementById('auto-zoom-map');
   const quantitySelect = document.getElementById('default-quantity');
+  const rememberBox = document.getElementById('remember-quantity');
   const widthLabel = document.getElementById('width-label');
   const resetWidth = document.getElementById('reset-width');
   const sideRadios = Array.from(document.querySelectorAll('input[name="paneSide"]'));
@@ -130,6 +131,7 @@ export async function init() {
     mapBox.checked = settings.mapLink;
     autoZoomBox.checked = settings.autoZoomMap;
     quantitySelect.value = String(settings.defaultQuantity);
+    rememberBox.checked = settings.rememberQuantity;
     frontRowsInput.value = String(settings.frontRows);
     modeRadios.forEach(function (r) { r.checked = r.value === settings.displayMode; });
     sizeRadios.forEach(function (r) { r.checked = r.value === settings.uiSize; });
@@ -162,6 +164,10 @@ export async function init() {
     change({ defaultQuantity: Number(e.target.value) });
   }
   quantitySelect.addEventListener('change', onQuantityChange);
+  function onRememberChange(e) {
+    change({ rememberQuantity: e.target.checked });
+  }
+  rememberBox.addEventListener('change', onRememberChange);
   function onSideChange(e) {
     if (e.target.checked) change({ paneSide: e.target.value });
   }

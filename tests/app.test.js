@@ -570,6 +570,41 @@ describe('hosting hooks', () => {
   });
 });
 
+describe('the ticket quantity', () => {
+  const fakeQuantity = () => ({ pending: () => false, tick: vi.fn(), setDesired: vi.fn(), setRemember: vi.fn(), whenSettled: (fn) => fn() });
+
+  it('asks the page for the quantity saved, and to report what the user chooses on it, when remembering is on', () => {
+    const qd = fakeQuantity();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', defaultQuantity: 4 }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    expect(qd.setDesired).toHaveBeenCalledWith(4);
+    expect(qd.setRemember).toHaveBeenCalledWith(true, expect.any(Function));
+  });
+
+  it('saves a quantity the user chooses on the page as the one to ask for next time', async () => {
+    const qd = fakeQuantity();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    const choose = qd.setRemember.mock.calls[0][1];
+    choose(5);
+    await flush();
+    expect(peekStorage('defaultQuantity')).toBe(5);
+  });
+
+  it('does not report choices when remembering is off', () => {
+    const qd = fakeQuantity();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', rememberQuantity: false, defaultQuantity: 3 }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    expect(qd.setRemember).toHaveBeenCalledWith(false, expect.any(Function));
+    expect(qd.setDesired).toHaveBeenCalledWith(3);
+  });
+
+  it('follows the settings when they change (the options page, or another page that saved a choice)', () => {
+    const qd = fakeQuantity();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    app.updateSettings(normalizeSettings({ loadMode: 'scroll', defaultQuantity: 6, rememberQuantity: false }));
+    expect(qd.setDesired).toHaveBeenLastCalledWith(6);
+    expect(qd.setRemember).toHaveBeenLastCalledWith(false);
+  });
+});
+
 describe('the venue\'s seat map', () => {
   /** An app that tells the map about its sections. */
   function makeMapped(settings = {}) {

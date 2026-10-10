@@ -77,6 +77,9 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
   const reader = createPageReader({
     loadMode: settings.loadMode,
     defaultQuantity: settings.defaultQuantity,
+    rememberQuantity: settings.rememberQuantity,
+    // The quantity the user chose on the page is the one to start with next time: the page follows (see updateSettings).
+    onQuantityChosen(quantity) { saveSettings({ defaultQuantity: quantity }); },
     deps: readerDeps,
     onSnapshot(next) {
       snapshot = next;
@@ -443,6 +446,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
       this.setUiSize(next.uiSize);
       if (typeof next.autoZoomMap === 'boolean') view.setAutoZoom(next.autoZoomMap);
       if (next.loadMode) reader.setLoadMode(next.loadMode);
+      if (typeof next.rememberQuantity === 'boolean') reader.setRememberQuantity(next.rememberQuantity);
       if (typeof next.defaultQuantity === 'number') reader.setDefaultQuantity(next.defaultQuantity);
       const badgesChanged = JSON.stringify(next.customBadges || []) !== JSON.stringify(globalBadges);
       if (next.frontRows !== defaultFrontRows || badgesChanged) {

@@ -8,8 +8,13 @@ import {
   getPageSort,
   measureTicketTextPx,
   sortModeFromLabel,
+  closeQuantityControl,
+  findQuantityPanel,
   getActiveQuantity,
   getCards,
+  getQuantityMax,
+  hasQuantityControl,
+  hideQuantityPanel,
   getLoadedStatus,
   scrollToLoadMore,
   scrollToTopAllContainers,
@@ -476,5 +481,93 @@ describe('findVenue', () => {
     expect(findVenue()).toBeNull();
     document.body.innerHTML = '<a href="/venues">All venues</a><a href="/some/venue/">x</a>';
     expect(findVenue()).toBeNull();
+  });
+});
+
+// Ticketmaster's own markup for the quantity chip and the Quantity panel it opens (ticketmaster.ie, 2026-10-10): the panel is INLINE,
+// under the chips (not a popover), the stepper says the event's own limit (aria-valuemax 6), and the last chip is ours.
+describe("Ticketmaster's quantity control", () => {
+  const html = fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/tm-quantity-header.html'), 'utf8');
+  const open = () => { document.body.innerHTML = html; };
+  const closed = () => {
+    open();
+    document.querySelector('.sc-85d4e7f3-6').remove(); // the panel is only in the page while the chip is open
+    document.querySelector('button[aria-expanded="true"]').setAttribute('aria-expanded', 'false');
+  };
+
+  it('is there once the chip is (the panel is not needed)', () => {
+    document.body.innerHTML = '<p>nothing</p>';
+    expect(hasQuantityControl()).toBe(false);
+    closed();
+    expect(hasQuantityControl()).toBe(true);
+    open();
+    expect(hasQuantityControl()).toBe(true);
+  });
+
+  it('reads the quantity from the stepper when it is open, and from the chip ("1 Ticket", singular too) when it is not', () => {
+    open();
+    expect(getActiveQuantity()).toBe(1);
+    closed();
+    expect(getActiveQuantity()).toBe(1);
+    document.querySelector('.sc-4e90585c-3').textContent = '4 Tickets';
+    expect(getActiveQuantity()).toBe(4);
+  });
+
+  it('reads the event\'s own limit from the stepper, only while it is open', () => {
+    open();
+    expect(getQuantityMax()).toBe(6);
+    closed();
+    expect(getQuantityMax()).toBeNull();
+  });
+
+  it('finds the panel by its structure: the part of the page that holds the stepper but not the chips', () => {
+    open();
+    const panel = findQuantityPanel();
+    expect(panel.className).toBe('sc-85d4e7f3-6 ehFsFA');
+    expect(panel.querySelector('h3').textContent).toBe('Quantity');
+    // ...whatever its (build-hash) class names are
+    document.querySelectorAll('[class]').forEach((e) => e.removeAttribute('class'));
+    expect(findQuantityPanel().querySelector('h3').textContent).toBe('Quantity');
+  });
+
+  it('finds no panel while it is closed, or on a page without one', () => {
+    closed();
+    expect(findQuantityPanel()).toBeNull();
+    document.body.innerHTML = '<p>nothing</p>';
+    expect(findQuantityPanel()).toBeNull();
+  });
+
+  it('keeps the panel out of sight, and gives it back', () => {
+    open();
+    hideQuantityPanel(true);
+    const panel = document.querySelector('.sc-85d4e7f3-6');
+    expect(panel.style.display).toBe('none');
+    expect(panel.hasAttribute('data-tmsv-hidden')).toBe(true);
+    hideQuantityPanel(false);
+    expect(panel.style.display).toBe('');
+    expect(panel.hasAttribute('data-tmsv-hidden')).toBe(false);
+    hideQuantityPanel(false); // (nothing to give back: no harm)
+    hideQuantityPanel(true);
+    hideQuantityPanel(true);
+    expect(panel.style.display).toBe('none');
+  });
+
+  it('closes the dropdown only when it is open, by pressing the chip once', () => {
+    open();
+    const chip = document.querySelector('button[aria-expanded="true"]');
+    const pressed = vi.fn();
+    chip.addEventListener('click', pressed);
+    closeQuantityControl();
+    expect(pressed).toHaveBeenCalledTimes(1);
+    chip.setAttribute('aria-expanded', 'false');
+    closeQuantityControl();
+    expect(pressed).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not fooled by our own chip: By Section', () => {
+    open();
+    const ours = document.querySelector('[data-tmsv-chip]');
+    expect(ours.textContent).toMatch(/By Section/);
+    expect(getActiveQuantity()).toBe(1);
   });
 });

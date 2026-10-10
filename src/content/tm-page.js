@@ -280,6 +280,39 @@ export function closeQuantityControl() {
   if (chip && chip.getAttribute('aria-expanded') === 'true') clickElement(chip);
 }
 
+/** The event's own limit on tickets, from the quantity stepper (aria-valuemax; 6 on the O2's event, not 8), or null while the stepper is closed. */
+export function getQuantityMax() {
+  const spinbutton = document.querySelector('[role="spinbutton"]');
+  const max = spinbutton ? parseInt(spinbutton.getAttribute('aria-valuemax'), 10) : NaN;
+  return max > 0 ? max : null;
+}
+
+/**
+ * The panel the quantity stepper lives in: under the filter chips, opened by the quantity chip. Ticketmaster's class names are build
+ * hashes, so it is found by structure: the part of the page that holds the stepper (and a title) but not the chips. Null when closed.
+ */
+export function findQuantityPanel() {
+  const stepper = document.querySelector('[data-testid="quantityStepper"]') || document.querySelector('[role="spinbutton"]');
+  const toolbar = document.querySelector('[role="toolbar"]');
+  if (!stepper || !toolbar) return null;
+  let node = stepper;
+  while (node.parentElement && !node.parentElement.contains(toolbar)) node = node.parentElement;
+  return node.parentElement && node !== stepper ? node : null;
+}
+
+/** Keep the quantity panel out of sight (or give it back): for pressing its buttons without the page jumping open and shut. */
+export function hideQuantityPanel(hide) {
+  const panel = findQuantityPanel();
+  if (!panel) return;
+  if (hide) {
+    panel.setAttribute('data-tmsv-hidden', '');
+    panel.style.setProperty('display', 'none', 'important');
+  } else if (panel.hasAttribute('data-tmsv-hidden')) {
+    panel.removeAttribute('data-tmsv-hidden');
+    panel.style.removeProperty('display');
+  }
+}
+
 export function stepQuantity(delta, onStepped) {
   const target = getActiveQuantity() + delta;
   if (target < MIN_TICKETS || target > MAX_TICKETS) return false;

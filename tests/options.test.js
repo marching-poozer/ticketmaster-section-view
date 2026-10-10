@@ -85,6 +85,37 @@ describe('options page', () => {
       expect(text).toMatch(/goes back to 2/);
       expect(text).toMatch(/once/);
       expect(text).toMatch(/not put back/);
+      expect(text).toMatch(/left exactly as it is/); // it is Ticketmaster's own control: nothing is replaced
+    });
+
+    describe('remembering the quantity chosen on the page', () => {
+      const box = () => document.getElementById('remember-quantity');
+      it('is on by default, and shows that it was switched off', async () => {
+        await start();
+        expect(box().checked).toBe(true);
+        page.destroy();
+        page = null;
+        await start({ rememberQuantity: false });
+        expect(box().checked).toBe(false);
+      });
+
+      it('is saved as it changes, and follows a change made elsewhere', async () => {
+        await start();
+        box().checked = false;
+        box().dispatchEvent(new Event('change', { bubbles: true }));
+        await flush();
+        expect(peekStorage('rememberQuantity')).toBe(false);
+        await saveSettings({ rememberQuantity: true });
+        await flush();
+        expect(box().checked).toBe(true);
+      });
+
+      it('shows the quantity the page saved when the user chose one there', async () => {
+        await start();
+        await saveSettings({ defaultQuantity: 5 }); // saved by a page
+        await flush();
+        expect(document.getElementById('default-quantity').value).toBe('5');
+      });
     });
   });
 

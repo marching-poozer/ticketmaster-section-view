@@ -68,13 +68,25 @@
       <legend>Ticket quantity</legend>
 
       <label class="choice">
+        <input type="checkbox" id="remember-quantity">
+        <span>
+          <strong>Remember the quantity I choose</strong>
+          <small>
+            Ticketmaster goes back to 2 tickets every time a page loads. With this on, change the quantity on the page
+            as usual (Ticketmaster's own &ldquo;N Tickets&rdquo; control, which is left exactly as it is) and Section View
+            remembers it and starts every page with it. Switch it off to keep the number below as it is, whatever you
+            choose on the page.
+          </small>
+        </span>
+      </label>
+
+      <label class="choice">
         <span>
           <strong>Tickets to ask for when a page loads</strong>
           <small>
-            Ticketmaster goes back to 2 tickets every time a page loads. Choose a number here and Section View presses
-            Ticketmaster's own quantity control for you, once, as the page loads, and holds off reading the ticket list
-            until it is set. After that you can change the quantity as usual: it is not put back. Leave it on
-            &ldquo;Ticketmaster's choice&rdquo; to do nothing.
+            Section View presses Ticketmaster's quantity control for you, once, as the page loads (out of sight, and
+            only as far as the event allows), and holds off reading the ticket list until it is set. After that you
+            can change the quantity as usual: it is not put back. &ldquo;Ticketmaster's choice&rdquo; does nothing.
           </small>
           <select id="default-quantity" aria-label="Tickets to ask for when a page loads">
             <option value="0">Ticketmaster's choice (usually 2)</option>

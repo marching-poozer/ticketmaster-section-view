@@ -66,6 +66,8 @@ export function normalizeSettings(raw) {
     // Zoom the seat map by itself when the mouse rests on an open section (else a "Show on map" button does it on request).
     autoZoomMap: s.autoZoomMap !== false,
     // How many tickets to ask for when a page loads (Ticketmaster starts at 2 every time): 0 leaves Ticketmaster's own choice alone.
+    // ...and whether the quantity chosen on the page becomes the one to ask for next time (so it persists across refreshes).
+    rememberQuantity: s.rememberQuantity !== false,
     defaultQuantity: Number.isInteger(s.defaultQuantity) && s.defaultQuantity >= MIN_TICKETS && s.defaultQuantity <= MAX_TICKETS ? s.defaultQuantity : 0,
     sort: SORTS.includes(s.sort) ? s.sort : 'row',
     // The seat and price choices used to be pills among the others in `badgeFilters`: carry those over.

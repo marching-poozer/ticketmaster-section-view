@@ -34,10 +34,11 @@ function sleep(ms) {
  * `source` is 'api' or 'scroll'; `fallback` says why the API isn't being used, if it was meant to be; `viaApi` is whether
  * the tickets are (or are about to be) read from it. Scrolling the cards, the reader also opens Ticketmaster's "VIP Packages" row (once per quantity / sort) so the packages are in the list. `loadMode` ('api', the default, or 'scroll') says where tickets should come from.
  * `defaultQuantity` (0: none) is how many tickets to ask for when the page loads (Ticketmaster starts at 2 every time): the page's own quantity
- * control is pressed to get there, once per page, and the list is not read until it has been (see quantity-default.js).
+ * control is pressed to get there, once per page, and the list is not read until it has been (see quantity-default.js). With `rememberQuantity`,
+ * a quantity the user chooses on the page is reported to `onQuantityChosen(quantity)`.
  * `deps.apiSource` and `deps.quantityDefault` are for tests.
  */
-export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQuantity, deps }) {
+export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQuantity, rememberQuantity, onQuantityChosen, deps }) {
   const d = deps || {};
   let running = false;
   let lastQty = null;
@@ -60,6 +61,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
   const api = d.apiSource || createApiSource({ onChange: function () { scheduleSnapshot(); } });
   const quantityDefault = d.quantityDefault || createQuantityDefault();
   quantityDefault.setDesired(defaultQuantity);
+  quantityDefault.setRemember(rememberQuantity === true, onQuantityChosen);
 
   function usingApi() {
     return running && loadMode === 'api' && gaveUp === null;
@@ -463,6 +465,11 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQua
     /** The quantity to ask for when a page loads (0: none); a new one is applied to the page that is open. */
     setDefaultQuantity: function (quantity) {
       quantityDefault.setDesired(quantity);
+      if (running) quantityDefault.tick();
+    },
+    /** Report (or stop reporting) a quantity the user chooses on the page. */
+    setRememberQuantity: function (on) {
+      quantityDefault.setRemember(on === true);
       if (running) quantityDefault.tick();
     },
     setLoadMode,

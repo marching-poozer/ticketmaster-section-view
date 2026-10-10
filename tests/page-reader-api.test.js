@@ -175,6 +175,7 @@ function fakeQuantity(pending = false) {
     pending: () => qd.isPending,
     tick: vi.fn(),
     setDesired: vi.fn(),
+    setRemember: vi.fn(),
     whenSettled: (fn) => { if (!qd.isPending) fn(); else waiting.push(fn); },
     done() { qd.isPending = false; waiting.splice(0).forEach((fn) => fn()); },
   };
@@ -196,6 +197,15 @@ describe('with a ticket quantity to ask for when the page loads', () => {
     expect(qd.tick.mock.calls.length).toBeGreaterThan(ticks);
     reader.setDefaultQuantity(6);
     expect(qd.setDesired).toHaveBeenLastCalledWith(6);
+  });
+
+  it('passes on whether to remember a quantity the user chooses, and who to tell', () => {
+    const qd = fakeQuantity();
+    const chosen = vi.fn();
+    const { reader } = setup(fakeApi(), { rememberQuantity: true, onQuantityChosen: chosen, deps: { quantityDefault: qd } });
+    expect(qd.setRemember).toHaveBeenCalledWith(true, chosen);
+    reader.setRememberQuantity(false);
+    expect(qd.setRemember).toHaveBeenLastCalledWith(false);
   });
 
   it('does not start reading the list until the quantity has been set: the page asks for one at each quantity on the way', () => {

@@ -11,11 +11,15 @@ function fakePage({ quantity = 2, control = true, stuck = false } = {}) {
     closed: 0,
     pending: [],
     path: '/event/1',
+    max: null,
+    hidden: [],
     hasQuantityControl: () => page.control,
     getActiveQuantity: () => page.quantity,
+    getQuantityMax: () => page.max,
+    hideQuantityPanel: (hide) => page.hidden.push(hide),
     stepQuantity(delta, onStepped) {
       const target = page.quantity + delta;
-      if (target < 1 || target > 8) return false;
+      if (target < 1 || target > (page.max || 8)) return false;
       page.open = true;
       page.steps.push(delta);
       if (!stuck) page.quantity = target;
@@ -213,5 +217,134 @@ describe('setting the ticket quantity when a page loads', () => {
     const page = fakePage();
     const { qd } = make(page);
     [-1, 0, 2.5, '3', null, undefined, NaN].forEach((v) => { qd.setDesired(v); expect(qd.pending()).toBe(false); });
+  });
+
+  it('keeps Ticketmaster\'s panel out of sight while it presses, and gives it back afterwards', () => {
+    const page = fakePage({ quantity: 2 });
+    const { qd } = make(page);
+    qd.setDesired(3);
+    qd.tick();
+    expect(page.hidden[0]).toBe(true); // before the first press has even opened the panel
+    page.settle();
+    expect(page.hidden[page.hidden.length - 1]).toBe(false);
+  });
+
+  it('closes the panel only when it was the one to open it (never a panel the user has open)', () => {
+    const page = fakePage({ quantity: 3 });
+    const { qd } = make(page);
+    qd.setDesired(3);
+    qd.tick();
+    expect(page.steps).toEqual([]);
+    expect(page.closed).toBe(0);
+    expect(page.hidden).toEqual([]); // and it did not hide anything either
+  });
+
+  it('stays within the limit the event\'s own stepper gives (6, not always 8)', () => {
+    const page = fakePage({ quantity: 2 });
+    page.max = 6;
+    const { qd, log } = make(page);
+    qd.setDesired(8);
+    for (let i = 0; i < 8; i++) { qd.tick(); page.settle(); }
+    expect(page.quantity).toBe(6);
+    expect(qd.pending()).toBe(false);
+    expect(log).toHaveBeenCalledWith('Ticket quantity set to 6 (the most this event allows; 8 was asked for).');
+  });
+});
+
+describe('remembering the quantity the user chooses', () => {
+  const rested = () => {
+    const page = fakePage({ quantity: 2 });
+    const chosen = vi.fn();
+    const { qd } = make(page);
+    qd.setRemember(true, chosen);
+    return { page, qd, chosen };
+  };
+
+  it('reports a quantity chosen on the page after it has been seen at rest, and nothing else', () => {
+    const { page, qd, chosen } = rested();
+    qd.tick(); // the page as it loaded: Ticketmaster\'s own 2
+    expect(chosen).not.toHaveBeenCalled();
+    page.quantity = 5; // the user steps it
+    qd.tick();
+    expect(chosen).toHaveBeenCalledTimes(1);
+    expect(chosen).toHaveBeenCalledWith(5);
+    qd.tick(); // (once)
+    expect(chosen).toHaveBeenCalledTimes(1);
+    page.quantity = 1;
+    qd.tick();
+    expect(chosen).toHaveBeenLastCalledWith(1);
+  });
+
+  it('does not report its own presses on the way to the quantity asked for (or the quantity itself)', () => {
+    const { page, qd, chosen } = rested();
+    qd.setDesired(4);
+    for (let i = 0; i < 4; i++) { qd.tick(); page.settle(); }
+    expect(page.quantity).toBe(4);
+    expect(chosen).not.toHaveBeenCalled();
+    page.quantity = 6;
+    qd.tick();
+    expect(chosen).toHaveBeenCalledWith(6);
+  });
+
+  it('does not close a panel the user has open when their own choice is applied back to the page', () => {
+    const { page, qd, chosen } = rested();
+    qd.setDesired(4);
+    for (let i = 0; i < 4; i++) { qd.tick(); page.settle(); }
+    chosen.mockClear();
+    page.open = true; // the user has the panel open and presses +
+    page.quantity = 5;
+    qd.tick();
+    expect(chosen).toHaveBeenCalledWith(5);
+    const closedBefore = page.closed;
+    qd.setDesired(5); // what the app does once it has saved their choice
+    qd.tick();
+    expect(page.closed).toBe(closedBefore);
+    expect(page.open).toBe(true);
+    expect(page.steps.length).toBe(2); // no more presses
+  });
+
+  it('says nothing while remembering is off, and after it is switched off', () => {
+    const page = fakePage({ quantity: 2 });
+    const { qd } = make(page);
+    const chosen = vi.fn();
+    qd.setRemember(false, chosen);
+    qd.tick();
+    page.quantity = 5;
+    qd.tick();
+    expect(chosen).not.toHaveBeenCalled();
+    qd.setRemember(true);
+    qd.tick(); // (5 is the page as it is now)
+    page.quantity = 6;
+    qd.tick();
+    expect(chosen).toHaveBeenCalledWith(6);
+    qd.setRemember(false);
+    page.quantity = 7;
+    qd.tick();
+    expect(chosen).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes a new page (another event, no reload) as it finds it', () => {
+    const { page, qd, chosen } = rested();
+    qd.tick();
+    page.path = '/event/2';
+    page.quantity = 2; // Ticketmaster starts the new page at 2: not a choice
+    qd.tick();
+    expect(chosen).not.toHaveBeenCalled();
+    page.quantity = 3;
+    qd.tick();
+    expect(chosen).toHaveBeenCalledWith(3);
+  });
+
+  it('waits for the control before it looks', () => {
+    const page = fakePage({ quantity: 2, control: false });
+    const { qd } = make(page);
+    const chosen = vi.fn();
+    qd.setRemember(true, chosen);
+    qd.tick();
+    page.control = true;
+    qd.tick();
+    page.quantity = 4;
+    qd.tick();
+    expect(chosen).toHaveBeenCalledWith(4);
   });
 });
