@@ -16,7 +16,7 @@ import { createView } from './view.js';
 
 /** `readerDeps` is for tests (see createPageReader). */
 /**
- * `onSections({ sections, visible, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
+ * `onSections({ sections, visible, matching, standingOnly, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
  * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it;
  * `onMapReport()` -> a short message: the "Map report" button was pressed (see display.js);
  * `onTicketHover(ticket | null)` likewise for a ticket; `onShowSection(name)` / `onShowTicket(ticket)`: its "Show on map" button was pressed.
@@ -273,6 +273,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
         sections: sectionsOf(snapshot.tickets),
         visible: new Set(result.groups.map(function (g) { return g.name; })),
         matching: result.groups.reduce(function (all, g) { return all.concat(g.tickets); }, []), // the tickets the filters leave
+        standingOnly: state.badgeFilters.has('standing'), // (the "show only" pills must all hold, so every ticket left is a standing one: none is for a seat)
         ready: snapshot.status.isComplete === true,
       });
     }

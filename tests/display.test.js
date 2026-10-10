@@ -433,6 +433,17 @@ describe('the venue\'s seat map on the page', () => {
     expect(note().textContent).toBe('Seat map: ' + unlisted);
   });
 
+  it('with only Standing tickets showing, dims the blocks of seats the list lacks too, and says why', async () => {
+    pageWithMap();
+    document.querySelector('svg[data-component="svg"] g.polygons').insertAdjacentHTML('beforeend', '<path data-component="svg__section" data-section-id="s_7" data-section-name="BLOCK 7" data-active="true" d="M80 0L90 0L90 10z"></path>');
+    await start({ loadMode: 'scroll', badgeFilters: ['standing'] }); // show only Standing tickets: none of ours is, and none is for a seat
+    await settle(1200);
+    const note = () => inlineHost().shadowRoot.querySelector('.map-note');
+    expect(veiled()).toContain(block('BLOCK 7').getAttribute('d')); // numbered, no section, available: a block of seats
+    expect(veiled()).not.toContain(block('BLOCKZ').getAttribute('d')); // can't tell: left alone
+    expect(note().textContent).toBe('Seat map: 3 blocks dimmed: none of the tickets listed there match the current filters (only Standing tickets are showing, which no block of seats can have). 1 block is available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so it is left as the map shows it.');
+  });
+
   it('updates the map as tickets load: a note says so, and the blocks are marked the same way loading as loaded', async () => {
     pageWithMap({ loaded: false }); // "Loaded 20 of 84": the page has only the start of its list
     await start({ loadMode: 'scroll' });

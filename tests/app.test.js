@@ -602,6 +602,17 @@ describe('the venue\'s seat map', () => {
     expect([...state.visible]).toEqual(['102']);
   });
 
+  it('says when only Standing tickets are showing: none of them is for a seat', () => {
+    sampleCards();
+    const { onSections } = makeMapped();
+    app.start();
+    expect(last(onSections).standingOnly).toBe(false);
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click(); // show only standing
+    expect(last(onSections).standingOnly).toBe(true);
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click(); // ...then hide it: seated only
+    expect(last(onSections).standingOnly).toBe(false);
+  });
+
   it('says the list is not ready while tickets are still loading', () => {
     addLoadedLabel(4, 84);
     addCards({ section: '101', row: 12, price: 90 });

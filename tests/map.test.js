@@ -855,17 +855,20 @@ describe('the greyed blocks, and what the console is told', () => {
     expect(lines()).toBeGreaterThan(big * 3); // a quarter the size on the screen: the lines are four times as far apart in the map's own units
   });
 
-  it('fades the map\'s own unavailable blocks only while it is marking others: with nothing filtered the map is left as it is', () => {
+  it('always ghosts and cross-hatches the map\'s own unavailable blocks once the list is known, filtered or not (so the levels read the same)', () => {
     buildMap();
     block('WEST UPPER 1').setAttribute('data-active', 'false');
     link = createMapLink({ log: () => {} });
-    show(...sections.map((s) => s.name));
+    link.update({ sections: [], visible: new Set(), ready: false }); // nothing known of the list yet: the map is left as it is
     expect(overlay().querySelectorAll('path[data-tmsv-tier]')).toHaveLength(0);
+    show(...sections.map((s) => s.name)); // everything shown: nothing is dimmed...
+    expect(dimmed()).toEqual([]);
+    expect(tier('inactive')).toContain(dOf('WEST UPPER 1')); // ...but the map's own unavailable block is a ghost all the same
+    expect(layersOf('inactive', dOf('WEST UPPER 1')).map((l) => l.layer)).toEqual(['0', 'hatch']);
     show('NTHU3');
-    expect(tier('inactive')).toContain(dOf('WEST UPPER 1'));
-    show(...sections.map((s) => s.name));
-    expect(tier('inactive')).toEqual([]);
+    expect(layersOf('inactive', dOf('WEST UPPER 1')).map((l) => l.layer)).toEqual(['0', 'hatch']);
   });
+
 
   it('summarises how the map and the list were linked', () => {
     buildMap();
@@ -1226,6 +1229,61 @@ describe('the Map report on a zoomed map', () => {
     const maps = link.diagnose().maps;
     const main = maps.find((m) => m.seatsDrawn > 0);
     expect(main.seatBlocks).toEqual(['EASTL8: 4 on sale of 5', 'NTHM3: 0 on sale of 1']);
+  });
+});
+
+describe('when only Standing tickets are showing', () => {
+  // The map has blocks of seats (numbered), the floor (a standing block) and ones we can't tell about. Nothing at a seat can match.
+  const tickets = picksToTickets(real, { currency: '€' });
+  const standingState = (extra = {}) => ({ sections: realSections, visible: new Set(["STANDING-OVER 14'S ONLY"]), matching: tickets.filter((t) => t.section === "STANDING-OVER 14'S ONLY"), standingOnly: true, ready: true, ...extra });
+
+  it('dims a block we can tell is a block of seats even though the list has no ticket for it (a standing ticket is never for a seat)', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(standingState());
+    expect(link.summary().complete).toBe(true);
+    expect(dimmed()).toContain(dOf('NORTH UPPER 2')); // numbered, not in the list, available on the map: seats
+    expect(dimmed()).toContain(dOf('NORTH UPPER 3')); // linked, its tickets are out anyway
+    expect(dimmed()).not.toContain(dOf('GROUND FLOOR STANDING', 's_112')); // the standing block shows
+  });
+
+  it('leaves a block it cannot tell is seats alone: not knowing is not "no standing here"', () => {
+    buildMap();
+    host.querySelector('svg g.polygons').insertAdjacentHTML('beforeend', '<path data-component="svg__section" data-section-id="s_900" data-section-name="THE PIT" data-active="true" d="M900 0L900 10z"></path><path data-component="svg__section" data-section-id="s_901" data-section-name="ARENA" data-active="true" d="M901 0L901 10z"></path>');
+    link = createMapLink({ log: () => {} });
+    link.update(standingState());
+    expect(dimmed()).not.toContain('M900 0L900 10z'); // says pit
+    expect(dimmed()).not.toContain('M901 0L901 10z'); // no number, no way to tell
+  });
+
+  it('does not do any of it unless only Standing tickets are showing', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(standingState({ standingOnly: false }));
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2')); // the list lacks it: left as the map draws it
+  });
+
+  it('says so in the summary: the blocks dimmed for it are not counted as ones the list lacks', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(standingState({ standingOnly: false }));
+    const lacked = link.summary().unlisted;
+    expect(lacked).toBeGreaterThan(0);
+    link.update(standingState());
+    expect(link.summary()).toMatchObject({ standingOnly: true });
+    expect(link.summary().unlisted).toBeLessThan(lacked);
+    expect(link.summary().veiled).toBeGreaterThan(3);
+    expect(link.diagnose().blocks.find((b) => b.name === 'NORTH UPPER 2').state).toMatch(/^toned down \(only Standing tickets are showing, and this is a block of seats/);
+  });
+
+  it('greys EVERY seat on sale on the zoomed map, listed or not (none is a standing ticket)', () => {
+    buildZoomed();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(), matching: [], standingOnly: true, ready: true });
+    const greyed = Array.from(document.querySelectorAll('#main > g[data-tmsv-overlay] circle[fill="#8c8f99"]')).map((c) => [c.getAttribute('cx'), c.getAttribute('cy')]);
+    expect(greyed).toHaveLength(4); // the four seats of EASTL8 that are on sale; the two not on sale are left as the map draws them
+    link.update({ sections: eastSections, visible: new Set(), matching: [], standingOnly: false, ready: true });
+    expect(document.querySelectorAll('#main > g[data-tmsv-overlay] circle[fill="#8c8f99"]')).toHaveLength(0); // no ticket of ours covers them: not known
   });
 });
 

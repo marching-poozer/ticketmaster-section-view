@@ -49,7 +49,7 @@ function mapNote(summary) {
   // Still loading: the map is being updated as tickets arrive.
   if (!summary.ready) return 'Seat map: updating as tickets load: ' + summary.matched + ' block' + (summary.matched === 1 ? ' has' : 's have') + ' matching tickets so far.';
   const parts = [];
-  if (summary.veiled > 0) parts.push(plural(summary.veiled) + ' dimmed: none of the tickets listed there match the current filters.');
+  if (summary.veiled > 0) parts.push(plural(summary.veiled) + ' dimmed: none of the tickets listed there match the current filters' + (summary.standingOnly ? ' (only Standing tickets are showing, which no block of seats can have)' : '') + '.');
   if (summary.unlisted > 0) parts.push(plural(summary.unlisted) + (summary.unlisted === 1 ? ' is' : ' are') + ' available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so ' + (summary.unlisted === 1 ? 'it is' : 'they are') + ' left as the map shows ' + (summary.unlisted === 1 ? 'it' : 'them') + '.');
   return parts.length ? 'Seat map: ' + parts.join(' ') : null;
 }

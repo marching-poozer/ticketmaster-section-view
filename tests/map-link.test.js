@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { abbreviates, blockKeys, blockTiers, blocksToDim, keyOf, linkBlocks, linkingComplete, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
+import { abbreviates, blockKeys, blockTiers, blocksToDim, isSeatedBlock, keyOf, linkBlocks, linkingComplete, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
 import { picksToTickets, segmentIdOf } from '../src/lib/quickpicks.js';
 
 const o2 = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/o2-map-blocks.json'), 'utf8'));
@@ -307,6 +307,33 @@ describe('the levels of a block', () => {
 
   it('is what blocksToDim returns: the filtered ones', () => {
     expect(blocksToDim(blocks, links, new Set(['B']))).toEqual(blockTiers(blocks, links, new Set(['B'])).filtered);
+  });
+});
+
+describe('when only Standing tickets are showing', () => {
+  const blocks = [
+    { id: 's_1', name: 'NORTH UPPER 3', active: true },
+    { id: 's_2', name: 'NORTH UPPER 4', active: true },
+    { id: 's_112', name: 'GROUND FLOOR STANDING', active: true },
+    { id: 's_5', name: 'THE PIT', active: true },
+    { id: 's_6', name: 'SWEST', active: false },
+  ];
+  const links = { blockToSection: new Map([[0, 'NTHU3'], [2, 'STAND']]), sectionToBlocks: new Map() };
+
+  it('dims a block of seats whether or not the list has it: a standing ticket is never for a seat', () => {
+    expect(blockTiers(blocks, links, new Set(['STAND']), { standingOnly: true })).toEqual({ filtered: [0, 1], inactive: [4] });
+  });
+
+  it('does it for no other filter (the list lacking a block says nothing about it)', () => {
+    expect(blockTiers(blocks, links, new Set(['STAND', 'NTHU3']), {})).toEqual({ filtered: [], inactive: [4] });
+    expect(blockTiers(blocks, links, new Set(['STAND']))).toEqual({ filtered: [0], inactive: [4] });
+  });
+
+  it('knows a block of seats only by a number in its name and nothing standing about it', () => {
+    expect(isSeatedBlock({ id: 's_1', name: 'NORTH UPPER 3' })).toBe(true);
+    expect(isSeatedBlock({ id: 'x', name: 'BLOCK 104' })).toBe(true);
+    ['GROUND FLOOR STANDING', 'THE PIT', 'FLOOR 2', 'GA 1', 'GENERAL ADMISSION 1', 'ARENA', 'Golden Circle 1', 'STANDING B'].forEach((name) => expect(isSeatedBlock({ id: 'x', name })).toBe(false));
+    expect(isSeatedBlock({ id: 's_9' })).toBe(false); // no name at all
   });
 });
 

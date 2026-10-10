@@ -155,6 +155,18 @@ export function linkingComplete(links, sections) {
   return sections.length > 0 && sections.every(function (s) { return linked.has(s.name); });
 }
 
+// A block that names a place to stand (general admission), not seats.
+const STANDING_BLOCK = /stand|\bpit\b|floor|general|admission|\bga\b|golden/i;
+
+/**
+ * Can we tell that a block is a block of seats (never standing)? Only when its name is numbered ("NORTH UPPER 3", "BLOCK 104") and
+ * does not say standing, floor, pit, general admission or the like: when in doubt it is not, and is left alone.
+ */
+export function isSeatedBlock(block) {
+  const name = block.name || '';
+  return /\d/.test(name) && !STANDING_BLOCK.test(name + ' ' + (block.id || ''));
+}
+
 /**
  * The levels a block can be at, from the most present to the least:
  *   1. it has tickets that show, or we know nothing about it: left exactly as the map draws it;
@@ -164,9 +176,12 @@ export function linkingComplete(links, sections) {
  * when every section has found its block): Ticketmaster's list does not return every ticket (it keeps larger blocks of seats
  * unbroken, so it leaves some out for the quantity asked), yet the map shows them and they can be bought there. Not being in
  * our list says nothing about whether a block has seats, so it must never look as if it has none.
+ * ONE exception, `options.standingOnly` (the filters show only Standing tickets): a standing ticket is for the floor, never for a
+ * block of seats, so a block we can tell is a block of seats (isSeatedBlock) has nothing to match whether or not the list has it.
  * `visible`: the names of the sections that still show tickets. Each is a list of block indexes.
  */
-export function blockTiers(blocks, links, visible) {
+export function blockTiers(blocks, links, visible, options) {
+  const standingOnly = !!(options && options.standingOnly);
   const tiers = { filtered: [], inactive: [] };
   blocks.forEach(function (block, index) {
     if (block.active === false) {
@@ -174,12 +189,12 @@ export function blockTiers(blocks, links, visible) {
       return;
     }
     const section = links.blockToSection.get(index);
-    if (section !== undefined && !visible.has(section)) tiers.filtered.push(index);
+    if (section === undefined ? standingOnly && isSeatedBlock(block) : !visible.has(section)) tiers.filtered.push(index);
   });
   return tiers;
 }
 
-/** The blocks the map says are available whose section has tickets in our list but none left after the filters (level 2 above). */
-export function blocksToDim(blocks, links, visible) {
-  return blockTiers(blocks, links, visible).filtered;
+/** The blocks the map says are available that have nothing left to show after the filters (level 2 above). */
+export function blocksToDim(blocks, links, visible, options) {
+  return blockTiers(blocks, links, visible, options).filtered;
 }
