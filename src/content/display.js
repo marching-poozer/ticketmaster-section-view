@@ -38,13 +38,20 @@ async function reportOnMap(app, map) {
   }
 }
 
-/** What is going on with the venue's map, for the line under our counter: that it is updating while tickets load, then what its grey blocks mean (nothing when none are grey). */
+/**
+ * What is going on with the venue's map, for the line under our counter: that it is updating while tickets load, then what its
+ * toned-down blocks mean, and which blocks the list does not have at all (nothing when there is nothing to say). Ticketmaster's
+ * list does not return every ticket the map shows, so a block the list lacks is left as the map draws it and the line says so.
+ */
 function mapNote(summary) {
   if (!summary) return null;
-  // Still loading: the map is being updated as tickets arrive (what is marked is provisional until the list is complete).
+  const plural = function (n) { return n + ' block' + (n === 1 ? '' : 's'); };
+  // Still loading: the map is being updated as tickets arrive.
   if (!summary.ready) return 'Seat map: updating as tickets load: ' + summary.matched + ' block' + (summary.matched === 1 ? ' has' : 's have') + ' matching tickets so far.';
-  if (summary.veiled === 0) return null;
-  return 'Seat map: ' + summary.veiled + ' block' + (summary.veiled === 1 ? '' : 's') + ' greyed: no tickets there with the current filters.';
+  const parts = [];
+  if (summary.veiled > 0) parts.push(plural(summary.veiled) + ' dimmed: none of the tickets listed there match the current filters.');
+  if (summary.unlisted > 0) parts.push(plural(summary.unlisted) + (summary.unlisted === 1 ? ' is' : ' are') + ' available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so ' + (summary.unlisted === 1 ? 'it is' : 'they are') + ' left as the map shows ' + (summary.unlisted === 1 ? 'it' : 'them') + '.');
+  return parts.length ? 'Seat map: ' + parts.join(' ') : null;
 }
 
 /** Start Section View on this page. Resolves to a handle with destroy() (used by tests). */

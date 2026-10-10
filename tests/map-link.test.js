@@ -256,7 +256,7 @@ describe('which blocks to dim', () => {
   ];
   const links = { blockToSection: new Map([[0, 'A'], [1, 'B'], [2, 'C']]), sectionToBlocks: new Map() };
 
-  it('dims an available block whose section has nothing left after the filters', () => {
+  it('dims an available block whose section has tickets but nothing left after the filters', () => {
     expect(blocksToDim(blocks, links, new Set(['A']))).toEqual([1]);
   });
 
@@ -264,18 +264,18 @@ describe('which blocks to dim', () => {
     expect(blocksToDim(blocks, links, new Set(['A', 'B', 'C']))).toEqual([]);
   });
 
-  it('does not touch what the map already shows as unavailable, or what it could not link', () => {
-    expect(blocksToDim(blocks, links, new Set())).toEqual([0, 1]); // C is already grey; D is not linked: not knowing is not "empty"
+  it('does not touch what the map already shows as unavailable', () => {
+    expect(blocksToDim(blocks, links, new Set())).toEqual([0, 1]); // C is already grey
   });
 
-  it('dims what it could not link too, when told the linking is complete (such a block has no tickets at all)', () => {
-    expect(blocksToDim(blocks, links, new Set(['A']), true)).toEqual([1, 3]);
-    expect(blocksToDim(blocks, links, new Set(['A']), false)).toEqual([1]);
-    expect(blocksToDim(blocks, links, new Set(['A']))).toEqual([1]);
+  it('NEVER dims a block no section of ours matches: the list does not return every ticket the map shows, so the list not having it says nothing', () => {
+    expect(blocksToDim(blocks, links, new Set(['A']))).not.toContain(3); // D: available on the map, not in our list
+    expect(blocksToDim(blocks, links, new Set())).not.toContain(3);
+    expect(blocksToDim(blocks, { blockToSection: new Map(), sectionToBlocks: new Map() }, new Set())).toEqual([]); // nothing linked at all
   });
 
-  it('still leaves what the map shows as unavailable alone, complete or not', () => {
-    expect(blocksToDim([{ id: 'x', name: 'X', active: false }], { blockToSection: new Map(), sectionToBlocks: new Map() }, new Set(), true)).toEqual([]);
+  it('still leaves what the map shows as unavailable alone', () => {
+    expect(blocksToDim([{ id: 'x', name: 'X', active: false }], { blockToSection: new Map(), sectionToBlocks: new Map() }, new Set())).toEqual([]);
   });
 });
 
@@ -288,25 +288,25 @@ describe('the levels of a block', () => {
   ];
   const links = { blockToSection: new Map([[0, 'A'], [1, 'B'], [2, 'C']]), sectionToBlocks: new Map() };
 
-  it('are: has tickets that show (in neither list), the map says available but nothing of it shows (filtered), the map says unavailable (inactive)', () => {
-    expect(blockTiers(blocks, links, new Set(['A']), true)).toEqual({ filtered: [1, 3], inactive: [2] });
+  it('are: shows tickets or is not known about (neither list), has tickets the filters hide (filtered), the map says unavailable (inactive)', () => {
+    expect(blockTiers(blocks, links, new Set(['A']))).toEqual({ filtered: [1], inactive: [2] });
   });
 
-  it('puts a block the map says is available but no section of ours matches with those the filters hide: there is something there, at some quantity, that the list does not offer', () => {
-    expect(blockTiers(blocks, links, new Set(['A', 'B']), true).filtered).toEqual([3]);
-  });
-
-  it('leaves a block it could not link in neither of them unless told the linking is complete', () => {
-    expect(blockTiers(blocks, links, new Set(['A']), false)).toEqual({ filtered: [1], inactive: [2] });
+  it('never puts a block the map says is available but the list lacks (D) in any list, whatever the filters', () => {
+    [new Set(), new Set(['A']), new Set(['A', 'B']), new Set(['A', 'B', 'C'])].forEach((visible) => {
+      const tiers = blockTiers(blocks, links, visible);
+      expect(tiers.filtered).not.toContain(3);
+      expect(tiers.inactive).not.toContain(3);
+    });
   });
 
   it('puts what the map itself shows as unavailable in the last level whatever the filters are', () => {
-    expect(blockTiers(blocks, links, new Set(['A', 'B', 'C']), true).inactive).toEqual([2]);
-    expect(blockTiers(blocks, links, new Set(), true).inactive).toEqual([2]);
+    expect(blockTiers(blocks, links, new Set(['A', 'B', 'C'])).inactive).toEqual([2]);
+    expect(blockTiers(blocks, links, new Set()).inactive).toEqual([2]);
   });
 
   it('is what blocksToDim returns: the filtered ones', () => {
-    expect(blocksToDim(blocks, links, new Set(['B']), true)).toEqual(blockTiers(blocks, links, new Set(['B']), true).filtered);
+    expect(blocksToDim(blocks, links, new Set(['B']))).toEqual(blockTiers(blocks, links, new Set(['B'])).filtered);
   });
 });
 

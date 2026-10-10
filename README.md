@@ -28,7 +28,8 @@ Above: the view in Ticketmaster's own ticket pane. The pills filter by seats, qu
 
 Where the page has Ticketmaster's interactive seat map (like The O2 Belfast's), the list and the map work together. Ticketmaster's own map is never altered: everything is drawn on top of it.
 
-- **The map follows your filters, in three levels.** A block with tickets that show is left as Ticketmaster draws it. A block Ticketmaster shows as available but with nothing in the list that your filters leave (or, for the quantity you chose, nothing at all) turns a lighter, softer blue, with its label still crisp: there is something there, just not what you are looking at. A block Ticketmaster itself shows as unavailable becomes a pale ghost with fine cross-hatching. A line in the header says how many blocks are toned down. Zoomed in, the seats of tickets your filters leave out are greyed too. It updates **as tickets load** (blocks light up as matching tickets are found, with the same look as when everything has loaded; the header says the map is still updating). With nothing filtered, the map is exactly as Ticketmaster draws it.
+- **The map follows your filters, in three levels.** A block with tickets that show is left as Ticketmaster draws it. A block whose listed tickets are all out by your filters turns a lighter, softer blue (its label stays crisp). A block Ticketmaster itself shows as unavailable becomes a pale ghost with fine cross-hatching. A line in the header says how many blocks are dimmed. Zoomed in, the seats of tickets your filters leave out are greyed too. It updates **as tickets load**, with the same look as when everything has loaded (the header says the map is still updating). With nothing filtered, the map is exactly as Ticketmaster draws it.
+- **It never says a block is empty because the list lacks it.** Ticketmaster's ticket list does not return every ticket the map shows (it seems to keep larger blocks of seats together, so it leaves some out for the quantity you asked for), yet those seats are on the map and can be bought there. So a block the map shows as available is **never** dimmed just because it is not in the list, however you filter; the header counts such blocks and says it has left them as the map shows them.
 - **Hover a section in the list:** its block is outlined on the map, and the map shows its own tooltip (the view photo and the price).
 - **Rest on an open section:** the map opens it. A map that is zoomed in already zooms out first, then in at the new place.
 - **Hover a ticket:** its seats are ringed on the zoomed map.
@@ -36,7 +37,7 @@ Where the page has Ticketmaster's interactive seat map (like The O2 Belfast's), 
 - **Prefer the map to stay put?** Untick **Auto zoom map** in the list's header. Every section and ticket then has a **Show on map** button instead, and a ticket's seats stay ringed until you show something else.
 - **If a block looks wrong**, press **Map report** in the header. It labels every block on the map with what it is linked to for a few seconds (a red `?` is an available block no section matches) and copies a report you can send along.
 
-The map and the list name blocks differently (the map says `NORTH MIDDLE 3`, the list `NTHM3`), so they are matched by name, by block id, and by how a code abbreviates a name. A block nothing matches is left alone until every section has found its block.
+The map and the list name blocks differently (the map says `NORTH MIDDLE 3`, the list `NTHM3`), so they are matched by name, by block id, and by how a code abbreviates a name. A block nothing matches is left alone.
 
 ## Install
 

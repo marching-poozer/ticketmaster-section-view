@@ -399,36 +399,38 @@ describe('the venue\'s seat map on the page', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
-  it('veils the blocks our filters leave empty, and the blocks with no tickets at all, and nothing else', async () => {
+  it('dims the blocks whose tickets our filters leave out, and never one the list lacks (the list leaves tickets out that the map still sells)', async () => {
     pageWithMap();
     await start({ loadMode: 'scroll' });
     await settle(1200);
-    // every section of ours has its block, so the linking is complete: BLOCKZ, which the map shows as available but no section
-    // of ours is called after, has no tickets in the list and is greyed from the start. BLOCKY is greyed by the map itself.
-    expect(veiled()).toEqual([block('BLOCKZ').getAttribute('d')]);
+    // every section of ours has its block, so the linking is complete: BLOCKZ, which the map shows as available but no section of
+    // ours is called after, is not in the list: it is left as the map draws it. BLOCKY is greyed by the map itself.
+    expect(veiled()).toEqual([]);
 
     search('BLOCKA'); // only BLOCKA is left in our list
     await settle(1200);
-    expect(veiled().sort()).toEqual([block('BLOCKG').getAttribute('d'), block('BLOCKZ').getAttribute('d')].sort());
+    expect(veiled()).toEqual([block('BLOCKG').getAttribute('d')]); // BLOCKZ is still not dimmed
+    expect(veiled()).not.toContain(block('BLOCKZ').getAttribute('d'));
     search('');
     await settle(1200);
-    expect(veiled()).toEqual([block('BLOCKZ').getAttribute('d')]);
+    expect(veiled()).toEqual([]);
   });
 
-  it('says in our header what the grey blocks mean, while there are any', async () => {
+  it('says in our header what the dimmed blocks mean, and which blocks the list lacks', async () => {
     pageWithMap();
     await start({ loadMode: 'scroll' });
     await settle(1200);
     const note = () => inlineHost().shadowRoot.querySelector('.map-note');
-    expect(note().textContent).toBe('Seat map: 1 block greyed: no tickets there with the current filters.'); // BLOCKZ: no tickets at all
+    const unlisted = '1 block is available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so it is left as the map shows it.';
+    expect(note().textContent).toBe('Seat map: ' + unlisted); // BLOCKZ: not in the list
 
     search('BLOCKA');
     await settle(1200);
     expect(note().hidden).toBe(false);
-    expect(note().textContent).toBe('Seat map: 2 blocks greyed: no tickets there with the current filters.');
+    expect(note().textContent).toBe('Seat map: 1 block dimmed: none of the tickets listed there match the current filters. ' + unlisted);
     search('');
     await settle(1200);
-    expect(note().textContent).toBe('Seat map: 1 block greyed: no tickets there with the current filters.');
+    expect(note().textContent).toBe('Seat map: ' + unlisted);
   });
 
   it('updates the map as tickets load: a note says so, and the blocks are marked the same way loading as loaded', async () => {
@@ -442,6 +444,7 @@ describe('the venue\'s seat map on the page', () => {
     expect(note().hidden).toBe(false);
     expect(note().textContent).toBe('Seat map: updating as tickets load: 1 block has matching tickets so far.');
     expect(styles().length).toBeGreaterThan(0);
+    expect(veiled()).not.toContain(block('BLOCKZ').getAttribute('d')); // nothing is known of it yet, and the list will never have it
     const during = new Set(styles());
 
     // the page has now loaded everything
@@ -449,7 +452,7 @@ describe('the venue\'s seat map on the page', () => {
     label.textContent = 'Loaded 84 of 84';
     document.body.append(document.createElement('i'));
     await settle(1200);
-    expect(note().textContent).toBe('Seat map: 2 blocks greyed: no tickets there with the current filters.');
+    expect(note().textContent).toBe('Seat map: 1 block dimmed: none of the tickets listed there match the current filters. 1 block is available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so it is left as the map shows it.');
     expect(styles().length).toBeGreaterThan(0);
     styles().forEach((style) => expect(during.has(style)).toBe(true)); // nothing new in how it looks: only which blocks
   });
@@ -502,14 +505,14 @@ describe('the venue\'s seat map on the page', () => {
     await settle(1200);
     search('BLOCKA');
     await settle(1200);
-    expect(veiled()).toHaveLength(2);
+    expect(veiled()).toHaveLength(1);
     await saveSettings({ mapLink: false });
     await flush();
     expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
     await saveSettings({ mapLink: true });
     await flush();
     await settle(1200);
-    expect(veiled()).toHaveLength(2);
+    expect(veiled()).toHaveLength(1);
   });
 
   it('takes its overlay off the map when Section View is switched off or destroyed', async () => {
@@ -563,7 +566,7 @@ describe('the venue\'s seat map on the page', () => {
       expect(report.tickets).toMatchObject({ shown: 1 });
       expect(report.map.linkingComplete).toBe(true);
       expect(report.map.blocks.find((b) => b.name === 'BLOCKG')).toMatchObject({ section: 'BLOCKG' });
-      expect(report.map.blocks.find((b) => b.name === 'BLOCKG').state).toMatch(/^greyed/);
+      expect(report.map.blocks.find((b) => b.name === 'BLOCKG').state).toMatch(/^toned down/);
       expect(report.map.sections.map((s) => s.name).sort()).toEqual(['BLOCKA', 'BLOCKG']);
       expect(button().textContent).toMatch(/^Copied/);
     });

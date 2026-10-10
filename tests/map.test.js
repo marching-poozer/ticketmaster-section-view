@@ -134,14 +134,15 @@ describe('dimming the blocks our filters leave empty', () => {
     expect(dimmed()).toEqual([]);
   });
 
-  it('leaves blocks no section matches yet greyed lightly too, while loading: they have no tickets that are known', () => {
+  it('leaves a block no section matches yet alone while loading too: its tickets may simply not have arrived', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: [realSections[0]], visible: new Set(['NTHU3']), ready: false });
-    expect(dimmed()).toContain(dOf('NORTH UPPER 2')); // nothing loaded for it yet
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2')); // nothing loaded for it yet: nothing is said
     link.update({ sections: [...realSections, { name: 'UNMAPPED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
-    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2')); // loaded: the linking is not complete, so it is left alone after all
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2'));
   });
+
 
   it('un-dims when the filters change back', () => {
     buildMap();
@@ -585,9 +586,9 @@ describe('diagnosing how the map and the list were matched', () => {
     expect(of('NORTH UPPER 3')).toMatchObject({ id: 's_8', available: true, section: 'NTHU3' });
     expect(of('NORTH UPPER 3').state).toMatch(/^shown/);
     expect(of('WEST UPPER 1')).toMatchObject({ section: 'WESTU1' });
-    expect(of('WEST UPPER 1').state).toMatch(/^greyed \(the section has none/);
+    expect(of('WEST UPPER 1').state).toMatch(/^toned down \(the section has tickets, none left by the filters\)/);
     expect(of('NORTH UPPER 2')).toMatchObject({ section: null });
-    expect(of('NORTH UPPER 2').state).toMatch(/^greyed \(no section of ours/);
+    expect(of('NORTH UPPER 2').state).toMatch(/^LEFT ALONE \(the map says available, no section of ours: not in the list at all/);
     expect(of('SWEST').state).toMatch(/^unavailable/);
     expect(report.blocks).toHaveLength(o2.blocks.length);
   });
@@ -598,7 +599,7 @@ describe('diagnosing how the map and the list were matched', () => {
     link.update({ sections: [...realSections, { name: 'ODDLY_NAMED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
     const report = link.diagnose();
     expect(report.linkingComplete).toBe(false);
-    expect(report.blocks.find((b) => b.name === 'NORTH UPPER 2').state).toMatch(/^LEFT ALONE.*some section has no block/);
+    expect(report.blocks.find((b) => b.name === 'NORTH UPPER 2').state).toMatch(/^LEFT ALONE.*one of our sections has no block/);
   });
 
   it('says so while the list is not complete', () => {
@@ -607,8 +608,8 @@ describe('diagnosing how the map and the list were matched', () => {
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false });
     const of = (name) => link.diagnose().blocks.find((b) => b.name === name).state;
     expect(of('NORTH UPPER 3')).toMatch(/^shown/);
-    expect(of('WEST UPPER 1')).toMatch(/^provisionally greyed .*so far/);
-    expect(of('NORTH UPPER 2')).toMatch(/^provisionally greyed .*still loading/);
+    expect(of('WEST UPPER 1')).toMatch(/^toned down .*so far/);
+    expect(of('NORTH UPPER 2')).toMatch(/^LEFT ALONE/); // not marked while loading either
   });
 
   it('says, per section of ours, how many tickets it has and shows, its blocks, and what the API says of it', () => {
@@ -633,7 +634,7 @@ describe('diagnosing how the map and the list were matched', () => {
     const report = link.diagnose();
     expect(report).toMatchObject({ enabled: true, autoZoom: false, ready: true, zoomedIn: false });
     expect(report.maps).toHaveLength(1);
-    expect(report.maps[0]).toMatchObject({ viewBox: '0 0 10240 7680', blocks: o2.blocks.length });
+    expect(report.maps[0]).toMatchObject({ viewBox: '0 0 10240 7680', blocks: o2.blocks.length, seatBlocks: [] }); // (the zoomed-in map names the blocks it has seats for)
   });
 
   it('says it all in a form that can be written down as text', () => {
@@ -722,18 +723,22 @@ describe('labelling the blocks', () => {
 describe('a block with no section of ours', () => {
   const activeBlocks = o2.blocks.filter((b) => b.active).length;
 
-  it('is greyed too once every section of ours has found its block: it has no tickets in the list at all', () => {
+  it('is NEVER dimmed, however complete the linking: Ticketmaster\'s list leaves some tickets out, and the map still shows (and sells) them', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true }); // every one of the four sections has its block
-    expect(dimmed()).toHaveLength(activeBlocks - 1); // all the available blocks but NORTH UPPER 3
-    expect(dimmed()).toContain(dOf('NORTH UPPER 2')); // no section of ours called after it
-    expect(dimmed()).not.toContain(dOf('NORTH UPPER 3'));
-    expect(dimmed()).not.toContain(dOf('SWEST')); // the map greys that one itself
     expect(link.summary().complete).toBe(true);
+    expect(dimmed()).toHaveLength(3); // only the three linked blocks whose tickets are out by the filters
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2')); // available on the map, no section of ours: left as the map draws it
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 3'));
+    expect(overlay().querySelectorAll('path[data-tmsv-tier="filtered"]').length).toBe(3 * 2);
+    // ...even with every filter on, so nothing in the list matches
+    link.update({ sections: realSections, visible: new Set(), ready: true });
+    expect(dimmed()).toHaveLength(4);
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2'));
   });
 
-  it('is left alone while a section of ours has no block (it may be that very section, named differently)', () => {
+  it('is left alone while a section of ours has no block too', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: [...realSections, { name: 'ODDLY_NAMED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
@@ -742,11 +747,16 @@ describe('a block with no section of ours', () => {
     expect(link.summary().complete).toBe(false);
   });
 
-  it('counts in the summary, so the line in our header says how many blocks are grey', () => {
+  it('is counted as not in the list only when every section has found its block (else it may be one of ours, named differently)', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
-    expect(link.summary().veiled).toBe(activeBlocks - 1);
+    expect(link.summary().veiled).toBe(3);
+    expect(link.summary().unlisted).toBe(activeBlocks - 4); // every available block but the four with a section
+    expect(link.summary().unlisted).toBe(link.summary().unlinked.length);
+    link.update({ sections: [...realSections, { name: 'ODDLY_NAMED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    expect(link.summary().unlisted).toBe(0); // not known
+    expect(link.summary().unlinked.length).toBeGreaterThan(0);
   });
 
   it('is marked while the list is still loading and when it has loaded in the same way, so it does not jump as the list completes', () => {
@@ -806,12 +816,12 @@ describe('the greyed blocks, and what the console is told', () => {
     expect(lines.filter(([w, h]) => w === side && h < side / 3)).toHaveLength(1); // and down
   });
 
-  it('only tones down a block the map says is available but no section of ours matches: the map knows of tickets there (at some quantity), so it is not hatched', () => {
+  it('never tones down or hatches a block the map says is available but no section of ours matches', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true }); // every section of ours has its block, so NORTH UPPER 2 has nothing of ours
     const unmatched = dOf('NORTH UPPER 2');
-    expect(layersOf('filtered', unmatched).map((l) => l.layer)).toEqual(['0', '1']); // softer blue, no hatch layer
+    expect(layersOf('filtered', unmatched)).toEqual([]);
     expect(layersOf('inactive', unmatched)).toEqual([]);
     // only the map's own unavailable blocks are hatched
     const hatched = Array.from(overlay().querySelectorAll('path[data-tmsv-layer="hatch"]')).map((p) => p.getAttribute('d'));
@@ -1205,6 +1215,17 @@ describe('acting on the map as it is now, not as it was at the last look', () =>
     link.hover('WESTU1', false);
     vi.advanceTimersByTime(200);
     expect(seen).toEqual(['over']); // the tooltip: only an overview shows one
+  });
+});
+
+describe('the Map report on a zoomed map', () => {
+  it('says which blocks have seats drawn, and how many of them are on sale: to tell whether the map itself knows what is available where', () => {
+    buildZoomed();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: eastSections, visible: new Set(['EASTL8']), ready: true });
+    const maps = link.diagnose().maps;
+    const main = maps.find((m) => m.seatsDrawn > 0);
+    expect(main.seatBlocks).toEqual(['EASTL8: 4 on sale of 5', 'NTHM3: 0 on sale of 1']);
   });
 });
 

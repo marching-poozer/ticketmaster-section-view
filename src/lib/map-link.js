@@ -157,17 +157,16 @@ export function linkingComplete(links, sections) {
 
 /**
  * The levels a block can be at, from the most present to the least:
- *   1. it has tickets that show: left exactly as the map draws it;
- *   2. `filtered`: the map says it is available but nothing in our list for it shows: either its section's tickets are all
- *      left out by the filters, or (a block no section of ours matches) the map knows of tickets the list does not offer, at
- *      the quantity chosen (the list is for that quantity; a resale listing of fewer seats is on the map but not in the list).
- *      Either way there IS something there, so it is only toned down;
+ *   1. it has tickets that show, or we know nothing about it: left exactly as the map draws it;
+ *   2. `filtered`: the map says it is available and its section HAS tickets in our list, but the filters leave none of them: toned down;
  *   3. `inactive`: the map itself says it is unavailable: a ghost.
- * A block with no section (the map and the list name things differently) is only `filtered` if `greyUnlinked` (the linking is
- * complete, see linkingComplete, or the list is still loading and nothing has been found for it yet): not knowing is not "nothing".
+ * A block the map says is available that no section of ours matches is NEVER marked (not even while the list is loading, nor
+ * when every section has found its block): Ticketmaster's list does not return every ticket (it keeps larger blocks of seats
+ * unbroken, so it leaves some out for the quantity asked), yet the map shows them and they can be bought there. Not being in
+ * our list says nothing about whether a block has seats, so it must never look as if it has none.
  * `visible`: the names of the sections that still show tickets. Each is a list of block indexes.
  */
-export function blockTiers(blocks, links, visible, greyUnlinked) {
+export function blockTiers(blocks, links, visible) {
   const tiers = { filtered: [], inactive: [] };
   blocks.forEach(function (block, index) {
     if (block.active === false) {
@@ -175,12 +174,12 @@ export function blockTiers(blocks, links, visible, greyUnlinked) {
       return;
     }
     const section = links.blockToSection.get(index);
-    if (section === undefined ? greyUnlinked === true : !visible.has(section)) tiers.filtered.push(index);
+    if (section !== undefined && !visible.has(section)) tiers.filtered.push(index);
   });
   return tiers;
 }
 
-/** The blocks the map says are available (`active`) that have nothing left to show after the filters (level 2 above). */
-export function blocksToDim(blocks, links, visible, greyUnlinked) {
-  return blockTiers(blocks, links, visible, greyUnlinked).filtered;
+/** The blocks the map says are available whose section has tickets in our list but none left after the filters (level 2 above). */
+export function blocksToDim(blocks, links, visible) {
+  return blockTiers(blocks, links, visible).filtered;
 }
