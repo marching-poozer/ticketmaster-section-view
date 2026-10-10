@@ -27,7 +27,7 @@
 //
 // None of it is needed: with no map on the page (or one built differently) this does nothing.
 import { LOG_PREFIX } from '../lib/constants.js';
-import { blocksToDim, keyOf, linkBlocks, linkingComplete } from '../lib/map-link.js';
+import { blocksToDim, blockTiers, keyOf, linkBlocks, linkingComplete } from '../lib/map-link.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLOCK_SELECTOR = 'path[data-component="svg__section"]';
@@ -40,6 +40,18 @@ const REDRAW_AFTER_MS = [250, 600, 1200]; // the map zooms with an animation: lo
 const MAX_LISTED = 12;
 
 const EMPTY_LINKS = { blockToSection: new Map(), sectionToBlocks: new Map() };
+const NO_TIERS = { filtered: [], empty: [], inactive: [] };
+
+// How the blocks that are not the point are drawn on top of the map's own (see blockTiers). Three tiers, from the most present:
+// a block with tickets that show is left alone; one whose tickets the filters leave out keeps its colour and its brightness but
+// loses most of its saturation (a `saturation` blend, so the label still reads and it stays more present than a grey one);
+// one with no tickets at all is flat, pale grey, and so is the map's own unavailable block while we mark others, so the two
+// kinds of "nothing here" look alike and sit furthest back. Without blend support the first falls back to a plain grey veil.
+const TIER_STYLES = {
+  filtered: { fill: '#808080', 'fill-opacity': '0.65', style: 'mix-blend-mode:saturation', 'data-tmsv-tier': 'filtered' },
+  empty: { fill: '#c9cacf', 'fill-opacity': '0.9', 'data-tmsv-tier': 'empty' },
+  inactive: { fill: '#d6d7da', 'fill-opacity': '0.45', 'data-tmsv-tier': 'inactive' },
+};
 // How the map's own reset button names itself, if it does (the zoom controls: reset, +, -).
 const RESET_LABEL = /\breset\b|re-?cent(?:er|re)|zoom to fit|fit (?:to )?(?:screen|map|view)|overview|full (?:map|view)|show (?:the )?(?:whole|full|all)/i;
 const ZOOM_IN_LABEL = /zoom ?in|^\+$/i;
@@ -209,15 +221,18 @@ export function createMapLink(options) {
   function draw(binding) {
     const zoomed = showsSeats(binding);
     // Over the seats of a zoomed map the block outlines are not the point: the seats are.
-    // Loading: a block with no matching ticket YET is greyed lightly, and lights up when one arrives; once everything has loaded the
-    // grey is final, and a block no section matches is only greyed if the linking is complete (see linkingComplete).
+    // Loading or loaded, a block with no matching ticket is drawn the same way (the note in our header says the list is still
+    // arriving); a block no section matches is only treated as having no tickets if the linking is complete (see linkingComplete).
     const known = sections.length > 0; // with no tickets yet there is nothing to say
-    const dim = enabled && known && !zoomed ? blocksToDim(current(binding), binding.links, visible, ready ? linkingComplete(binding.links, sections) : true) : [];
+    const tiers = enabled && known && !zoomed ? blockTiers(current(binding), binding.links, visible, ready ? linkingComplete(binding.links, sections) : true) : NO_TIERS;
+    const marked = tiers.filtered.length + tiers.empty.length > 0;
+    const faded = marked ? tiers.inactive : []; // the map's own unavailable blocks join the scale only while we mark others
+    const dim = tiers.filtered.concat(tiers.empty);
     const outline = enabled && !zoomed && highlighted !== null ? binding.links.sectionToBlocks.get(highlighted) || [] : [];
     const rings = enabled && zoomed ? seatsToRing(binding) : [];
     const greySeats = enabled && zoomed ? seatsToGrey(binding) : []; // a seat whose ticket has loaded and is filtered out: grey now; one not loaded yet is left alone
     const labelled = enabled && !zoomed && Date.now() < labelsUntil;
-    const signature = JSON.stringify([dim, outline, binding.blocks.length, rings, greySeats, labelled, ready]);
+    const signature = JSON.stringify([tiers.filtered, tiers.empty, faded, outline, binding.blocks.length, rings, greySeats, labelled, ready]);
     if (binding.overlay && binding.overlay.isConnected && signature === binding.drawn) return;
     binding.drawn = signature;
 
@@ -237,8 +252,12 @@ export function createMapLink(options) {
       cover.setAttribute('pointer-events', 'none');
       return cover;
     });
-    const shapes = seatShapes.concat(dim.map(function (i) {
-      return shape(binding, i, { fill: '#8c8f99', 'fill-opacity': ready ? '0.88' : '0.45' }); // grey like the map's own unavailable blocks; lighter while still loading
+    const shapes = seatShapes.concat(tiers.filtered.map(function (i) {
+      return shape(binding, i, TIER_STYLES.filtered);
+    }), tiers.empty.map(function (i) {
+      return shape(binding, i, TIER_STYLES.empty);
+    }), faded.map(function (i) {
+      return shape(binding, i, TIER_STYLES.inactive);
     }), outline.map(function (i) {
       return shape(binding, i, { fill: 'none', stroke: '#ffb300', 'stroke-width': '4', 'stroke-linejoin': 'round', 'vector-effect': 'non-scaling-stroke' });
     }), rings.map(function (seat) {

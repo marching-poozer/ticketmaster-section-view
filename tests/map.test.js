@@ -27,7 +27,10 @@ function buildMap() {
 
 const block = (name, id) => host.querySelector(`path[data-section-name="${name}"]${id ? `[data-section-id="${id}"]` : ''}`);
 const overlay = () => host.querySelector('svg > g[data-tmsv-overlay]');
-const dimmed = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => p.getAttribute('d'));
+// the blocks we mark as having no tickets (tiers 2 and 3: filtered out, or none at all), and, apart, the map's own unavailable ones we fade to match
+const dimmed = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).map((p) => p.getAttribute('d'));
+const tier = (name) => Array.from(overlay().querySelectorAll(`path[data-tmsv-tier="${name}"]`)).map((p) => p.getAttribute('d'));
+const styleOf = (el) => ['fill', 'fill-opacity', 'style'].map((a) => el.getAttribute(a)).join('|');
 const outlined = () => Array.from(overlay().querySelectorAll('path[stroke]')).map((p) => p.getAttribute('d'));
 const dOf = (name, id) => block(name, id).getAttribute('d');
 
@@ -93,17 +96,18 @@ describe('dimming the blocks our filters leave empty', () => {
     expect(dimmed()).not.toContain(dOf('WEST UPPER 1'));
   });
 
-  const veilOpacities = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => Number(p.getAttribute('fill-opacity')));
-
-  it('greys blocks provisionally, lightly, while the list is still loading, and finally once it has loaded', () => {
+  it('marks blocks as the list is still loading, and in just the same way once it has loaded (it was lighter, and hard to tell apart)', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections, visible: new Set(['NTHU3']), ready: false }); // still loading
     expect(dimmed().length).toBeGreaterThan(0);
-    expect(veilOpacities().every((o) => o < 0.6)).toBe(true); // a lighter grey: "none yet"
+    const styles = () => Object.fromEntries(Array.from(overlay().querySelectorAll('path[data-tmsv-tier]')).map((p) => [p.getAttribute('data-tmsv-tier'), styleOf(p)]));
+    const during = styles();
     link.update({ sections, visible: new Set(['NTHU3']), ready: true });
     expect(dimmed().length).toBe(3);
-    expect(veilOpacities().every((o) => o > 0.8)).toBe(true); // final
+    const after = styles();
+    expect(Object.keys(after).length).toBeGreaterThan(0);
+    Object.keys(after).forEach((t) => expect(after[t]).toBe(during[t])); // a tier looks the same whether the list is loading or loaded
   });
 
   it('lights blocks up as the tickets for them are found', () => {
@@ -475,7 +479,7 @@ describe('hovering a section in our list: what the map is made to do', () => {
     show('NTHU3');
     const overlays = document.querySelectorAll('svg > g[data-tmsv-overlay]');
     expect(overlays).toHaveLength(2);
-    overlays.forEach((o) => expect(o.querySelectorAll('path[fill-opacity]')).toHaveLength(3));
+    overlays.forEach((o) => expect(o.querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).toHaveLength(3));
   });
 
   it('does nothing for a section no block is linked to, and nothing when switched off', () => {
@@ -742,13 +746,16 @@ describe('a block with no section of ours', () => {
     expect(link.summary().veiled).toBe(activeBlocks - 1);
   });
 
-  it('is greyed only lightly before the whole list has loaded, and firmly once it has', () => {
+  it('is marked while the list is still loading and when it has loaded in the same way, so it does not jump as the list completes', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false });
-    expect(Array.from(overlay().querySelectorAll('path[fill-opacity]')).every((p) => Number(p.getAttribute('fill-opacity')) < 0.6)).toBe(true);
+    const styles = () => Object.fromEntries(Array.from(overlay().querySelectorAll('path[data-tmsv-tier]')).map((p) => [p.getAttribute('data-tmsv-tier'), styleOf(p)]));
+    const during = styles();
+    expect(Object.keys(during).length).toBeGreaterThan(0);
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
-    expect(Array.from(overlay().querySelectorAll('path[fill-opacity]')).every((p) => Number(p.getAttribute('fill-opacity')) > 0.8)).toBe(true);
+    const after = styles();
+    Object.keys(after).forEach((t) => expect(after[t]).toBe(during[t]));
   });
 
   it('with no sections at all there is nothing to trust: nothing is greyed', () => {
@@ -760,13 +767,51 @@ describe('a block with no section of ours', () => {
 });
 
 describe('the greyed blocks, and what the console is told', () => {
-  it('are grey like the map\'s own unavailable blocks (they were a washed-out blue that looked like a different state)', () => {
+  // [r, g, b] of '#rrggbb'
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const neutral = (hex) => Math.max(...rgb(hex)) - Math.min(...rgb(hex)) < 12;
+  const brightness = (hex) => rgb(hex).reduce((a, b) => a + b, 0) / 3;
+  const first = (name) => overlay().querySelector(`path[data-tmsv-tier="${name}"]`);
+
+  it('has three tiers, so what has tickets is the most present, then what the filters hide, then what has no tickets at all', () => {
     buildMap();
+    block('WEST UPPER 1').setAttribute('data-active', 'false'); // the map's own unavailable block
     link = createMapLink({ log: () => {} });
     show('NTHU3');
-    const veil = overlay().querySelector('path[fill-opacity]');
-    expect(veil.getAttribute('fill')).toBe('#8c8f99');
-    expect(Number(veil.getAttribute('fill-opacity'))).toBeGreaterThan(0.8);
+    expect(tier('filtered').length).toBeGreaterThan(0);
+    expect(tier('inactive')).toContain(dOf('WEST UPPER 1'));
+    // tier 2 keeps the block's colour and brightness and takes most of its saturation (a blend), where the rest are flat and pale
+    const filtered = first('filtered');
+    expect(filtered.getAttribute('style')).toBe('mix-blend-mode:saturation');
+    expect(neutral(filtered.getAttribute('fill'))).toBe(true);
+    // tier 3, the map's own unavailable block faded to match, is neutral and paler than the toned-down block was (it was the other way round)
+    const inactive = first('inactive');
+    expect(neutral(inactive.getAttribute('fill'))).toBe(true);
+    expect(brightness(inactive.getAttribute('fill'))).toBeGreaterThan(brightness(filtered.getAttribute('fill')));
+    expect(Number(inactive.getAttribute('fill-opacity'))).toBeLessThan(Number(filtered.getAttribute('fill-opacity')));
+  });
+
+  it('draws a block no section matches (no tickets at all) flat and pale like the map\'s own unavailable ones, not like the toned-down ones', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false }); // loading: a block with no ticket yet has none
+    const empty = first('empty');
+    expect(empty).not.toBeNull();
+    expect(empty.getAttribute('style')).toBeNull();
+    expect(neutral(empty.getAttribute('fill'))).toBe(true);
+    expect(brightness(empty.getAttribute('fill'))).toBeGreaterThan(brightness(first('filtered') ? first('filtered').getAttribute('fill') : '#808080'));
+  });
+
+  it('fades the map\'s own unavailable blocks only while it is marking others: with nothing filtered the map is left as it is', () => {
+    buildMap();
+    block('WEST UPPER 1').setAttribute('data-active', 'false');
+    link = createMapLink({ log: () => {} });
+    show(...sections.map((s) => s.name));
+    expect(overlay().querySelectorAll('path[data-tmsv-tier]')).toHaveLength(0);
+    show('NTHU3');
+    expect(tier('inactive')).toContain(dOf('WEST UPPER 1'));
+    show(...sections.map((s) => s.name));
+    expect(tier('inactive')).toEqual([]);
   });
 
   it('summarises how the map and the list were linked', () => {

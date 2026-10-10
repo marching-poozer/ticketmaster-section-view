@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { abbreviates, blockKeys, blocksToDim, keyOf, linkBlocks, linkingComplete, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
+import { abbreviates, blockKeys, blockTiers, blocksToDim, keyOf, linkBlocks, linkingComplete, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
 import { picksToTickets, segmentIdOf } from '../src/lib/quickpicks.js';
 
 const o2 = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/o2-map-blocks.json'), 'utf8'));
@@ -276,6 +276,34 @@ describe('which blocks to dim', () => {
 
   it('still leaves what the map shows as unavailable alone, complete or not', () => {
     expect(blocksToDim([{ id: 'x', name: 'X', active: false }], { blockToSection: new Map(), sectionToBlocks: new Map() }, new Set(), true)).toEqual([]);
+  });
+});
+
+describe('the tiers of a block', () => {
+  const blocks = [
+    { id: 'a', name: 'A', active: true },
+    { id: 'b', name: 'B', active: true },
+    { id: 'c', name: 'C', active: false },
+    { id: 'd', name: 'D', active: true },
+  ];
+  const links = { blockToSection: new Map([[0, 'A'], [1, 'B'], [2, 'C']]), sectionToBlocks: new Map() };
+
+  it('are: has tickets that show (in none of the lists), has tickets the filters hide (filtered), and has none at all (empty, inactive)', () => {
+    expect(blockTiers(blocks, links, new Set(['A']), true)).toEqual({ filtered: [1], empty: [3], inactive: [2] });
+  });
+
+  it('leaves a block it could not link in none of them unless told the linking is complete', () => {
+    expect(blockTiers(blocks, links, new Set(['A']), false)).toEqual({ filtered: [1], empty: [], inactive: [2] });
+  });
+
+  it('puts what the map itself shows as unavailable in the last tier whatever the filters are', () => {
+    expect(blockTiers(blocks, links, new Set(['A', 'B', 'C']), true).inactive).toEqual([2]);
+    expect(blockTiers(blocks, links, new Set(), true).inactive).toEqual([2]);
+  });
+
+  it('is what blocksToDim is made of: the filtered and the empty, in block order', () => {
+    const tiers = blockTiers(blocks, links, new Set(['B']), true);
+    expect(blocksToDim(blocks, links, new Set(['B']), true)).toEqual(tiers.filtered.concat(tiers.empty).sort((a, b) => a - b));
   });
 });
 

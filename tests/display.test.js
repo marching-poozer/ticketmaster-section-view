@@ -391,7 +391,7 @@ describe('the venue\'s seat map on the page', () => {
   }
   const block = (name) => document.querySelector(`path[data-component="svg__section"][data-section-name="${name}"]`);
   const overlay = () => document.querySelector('svg > g[data-tmsv-overlay]');
-  const veiled = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => p.getAttribute('d'));
+  const veiled = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).map((p) => p.getAttribute('d'));
   const listSection = (name) => inlineHost().shadowRoot.querySelector(`.section[data-section="${name}"]`);
   const search = (text) => {
     const input = inlineHost().shadowRoot.querySelector('.search');
@@ -431,18 +431,18 @@ describe('the venue\'s seat map on the page', () => {
     expect(note().textContent).toBe('Seat map: 1 block greyed: no tickets there with the current filters.');
   });
 
-  it('updates the map as tickets load: a note says so, the grey is lighter, and it firms up once everything has loaded', async () => {
+  it('updates the map as tickets load: a note says so, and the blocks are marked the same way loading as loaded', async () => {
     pageWithMap({ loaded: false }); // "Loaded 20 of 84": the page has only the start of its list
     await start({ loadMode: 'scroll' });
     await settle(1200);
     const note = () => inlineHost().shadowRoot.querySelector('.map-note');
-    const opacities = () => Array.from(overlay().querySelectorAll('path[fill-opacity]')).map((p) => Number(p.getAttribute('fill-opacity')));
+    const styles = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).map((p) => p.getAttribute('data-tmsv-tier') + ':' + p.getAttribute('fill') + '|' + p.getAttribute('fill-opacity'));
     search('BLOCKA'); // only BLOCKA matches so far
     await settle(1200);
     expect(note().hidden).toBe(false);
     expect(note().textContent).toBe('Seat map: updating as tickets load: 1 block has matching tickets so far.');
-    expect(opacities().length).toBeGreaterThan(0);
-    expect(opacities().every((o) => o < 0.6)).toBe(true); // provisional
+    expect(styles().length).toBeGreaterThan(0);
+    const during = new Set(styles());
 
     // the page has now loaded everything
     const label = Array.from(document.querySelectorAll('span, div')).find((e) => !e.children.length && /^Loaded \d+ of \d+$/.test(e.textContent.trim()));
@@ -450,7 +450,8 @@ describe('the venue\'s seat map on the page', () => {
     document.body.append(document.createElement('i'));
     await settle(1200);
     expect(note().textContent).toBe('Seat map: 2 blocks greyed: no tickets there with the current filters.');
-    expect(opacities().every((o) => o > 0.8)).toBe(true); // final
+    expect(styles().length).toBeGreaterThan(0);
+    styles().forEach((style) => expect(during.has(style)).toBe(true)); // nothing new in how it looks: only which blocks
   });
 
   it('outlines the block of a closed section the mouse is on in the list, and sends the map the hover for its tooltip', async () => {
