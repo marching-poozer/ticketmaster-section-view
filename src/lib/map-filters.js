@@ -131,3 +131,25 @@ export function evaluateAvailability(availability, geometry, f, namesFor) {
   });
   return result;
 }
+
+/**
+ * How many places are on sale, by what the venue's map knows: { all, seats, standing, firstrow, frontrows }, or null without its data.
+ * `seats` is every seat on sale (whatever the quantity: a seat alone counts), `standing` the standing tickets, `all` both, `firstrow` /
+ * `frontrows` the seats in the first row / first N rows of each tier (the same tiers and rows as the list: `config` = { firstRows,
+ * frontRows }). Nothing here depends on any filter.
+ */
+export function seatCounts(availability, config) {
+  if (!availability) return null;
+  const firstRows = (config && config.firstRows) || [1];
+  const frontRows = (config && config.frontRows) || 5;
+  let firstrow = 0;
+  let frontrows = 0;
+  availability.seats.forEach(function (seat) {
+    const position = rowPosition(rowRank(seat.row), firstRows);
+    if (!position) return;
+    if (position.index === 1) firstrow += 1;
+    if (position.index <= frontRows) frontrows += 1;
+  });
+  const standing = availability.standing.reduce(function (n, facet) { return n + facet.count; }, 0);
+  return { all: availability.seats.length + standing, seats: availability.seats.length, standing, firstrow, frontrows };
+}

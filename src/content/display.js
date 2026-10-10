@@ -86,6 +86,7 @@ export async function initDisplay() {
     app = createApp({
       settings,
       version: chrome.runtime.getManifest().version,
+      seatCounts(config) { return map.seatCounts(config); },
       onSections(state) {
         map.update(state);
         const summary = map.summary();

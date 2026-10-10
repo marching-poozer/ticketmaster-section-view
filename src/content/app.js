@@ -14,6 +14,17 @@ import { deleteVenue, loadVenue, normalizeVenue, saveVenue, venueKey } from '../
 import { createPageReader } from './page-reader.js';
 import { createView } from './view.js';
 
+/** What the Seats pills' counts mean when they come from the venue's seat map. */
+function seatCountNotes(counts, quantity) {
+  const places = counts.standing > 0 ? counts.seats + ' seats and ' + counts.standing + ' standing tickets' : counts.seats + ' seats';
+  const why = ' (the venue\'s seat map: every one on sale, whatever the quantity or other filters; Ticketmaster\'s list holds only what it offers for ' + quantity + ' ticket' + (quantity === 1 ? '' : 's') + ')';
+  return {
+    all: places + ' on sale' + why,
+    firstrow: counts.firstrow + ' seats on sale in the first row of each tier' + why,
+    frontrows: counts.frontrows + ' seats on sale in those rows' + why,
+  };
+}
+
 /** What the list says when the filters leave nothing: what the venue's map has to add (`info`, see setMapUnlisted), if anything. */
 function noMatchesMessage(info) {
   const plural = function (n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); };
@@ -42,12 +53,14 @@ function noMatchesMessage(info) {
 
 /** `readerDeps` is for tests (see createPageReader). */
 /**
+ * `seatCounts(rowConfig)` -> { all, seats, standing, firstrow, frontrows } or null: how many places are on sale by the venue's own seat map. The Seats pills
+ * show those (they do not depend on any filter, nor on what the list happens to hold); without them the pills count the list's tickets.
  * `onSections({ sections, visible, matching, standingOnly, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
  * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it;
  * `onMapReport()` -> a short message: the "Map report" button was pressed (see display.js);
  * `onTicketHover(ticket | null)` likewise for a ticket; `onShowSection(name)` / `onShowTicket(ticket)`: its "Show on map" button was pressed.
  */
-export function createApp({ settings, version, readerDeps, onSections, onSectionHover, onTicketHover, onShowSection, onShowTicket, onMapReport }) {
+export function createApp({ settings, version, readerDeps, seatCounts, onSections, onSectionHover, onTicketHover, onShowSection, onShowTicket, onMapReport }) {
   // Behaviour that depends on where the view is hosted; see configure().
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
@@ -300,6 +313,9 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
 
     // buildSectionGroups annotates tickets in place; keep the snapshot pristine.
     const result = buildSectionGroups(snapshot.tickets.map(function (t) { return Object.assign({}, t); }), Object.assign({ rowConfig: rowConfig(), customBadges }, state));
+    const fromMap = seatCounts ? seatCounts(rowConfig()) : null;
+    if (fromMap) result.counts.seat = { all: fromMap.all, firstrow: fromMap.firstrow, frontrows: fromMap.frontrows };
+    view.setSeatCountNotes(fromMap ? seatCountNotes(fromMap, snapshot.qty) : null);
     view.setCounts(result.counts);
     if (onSections) {
       onSections({

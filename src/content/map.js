@@ -29,7 +29,7 @@
 import { LOG_PREFIX } from '../lib/constants.js';
 import { blocksToDim, blockTiers, isSeatedBlock, keyOf, linkBlocks, linkingComplete } from '../lib/map-link.js';
 import { describeData } from '../lib/map-data.js';
-import { evaluateAvailability } from '../lib/map-filters.js';
+import { evaluateAvailability, seatCounts } from '../lib/map-filters.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLOCK_SELECTOR = 'path[data-component="svg__section"]';
@@ -525,12 +525,25 @@ export function createMapLink(options) {
   }
 
   /** Say what was linked, once for each different outcome: if a block is not as it should be, this says why. */
+  /**
+   * Is the map's own list of seats on sale complete? Every seat of every ticket in our list was on sale when the list was made, so each should
+   * be among the map's (which has more: it has the groups the list leaves out). { ofOursOnMap, ofOursNotOnMap, notOnMapSample } or {} without data.
+   */
+  function coverage() {
+    if (!seatData.availability) return {};
+    const missing = Array.from(allSeats).filter(function (key) { return !seatData.availability.bySeatKey.has(key); });
+    return { ofOursOnMap: allSeats.size - missing.length, ofOursNotOnMap: missing.length, notOnMapSample: missing.slice(0, 8) };
+  }
+
   function report() {
     const s = summary();
     if (!s || !ready) return;
     const list = function (items) { return items.length ? items.slice(0, MAX_LISTED).join(', ') + (items.length > MAX_LISTED ? ' (+' + (items.length - MAX_LISTED) + ' more)' : '') : 'none'; };
-    const text = 'Seat map: ' + s.blocks + ' blocks, ' + s.linked + ' linked to a section of ours, ' + s.veiled + ' greyed. ' +
-      'Available on the map but linked to no section of ours: ' + list(s.unlinked) + '. Sections of ours with no block: ' + list(s.sectionsWithoutBlock) + '.';
+    const counts = seatCounts(seatData.availability, null);
+    const seen = coverage();
+    const text = 'Seat map: ' + s.blocks + ' blocks, ' + s.linked + ' linked to a section of ours, ' + s.veiled + ' toned down. ' +
+      'Available on the map but linked to no section of ours: ' + list(s.unlinked) + '. Sections of ours with no block: ' + list(s.sectionsWithoutBlock) + '.' +
+      (counts ? ' The map\'s own data: ' + counts.seats + ' seats and ' + counts.standing + ' standing tickets on sale; ' + seen.ofOursOnMap + ' of the ' + allSeats.size + ' seats in our list are among them.' : '');
     if (text === lastLogged) return;
     lastLogged = text;
     log(text);
@@ -778,6 +791,11 @@ export function createMapLink(options) {
      * Tell it about our list: `sections` = [{ name, tickets }] (all), `visible` = Set of the names that still show tickets
      * after the filters, `matching` = the tickets the filters leave, `ready` = the whole list has loaded.
      */
+    /** How many places are on sale by the map's own data ({ all, seats, standing, firstrow, frontrows }, see lib/map-filters.js), or null without it. */
+    seatCounts(config) {
+      return seatCounts(seatData.availability, config);
+    },
+
     /**
      * Would a pill find anything on the map, if chosen with everything else as it is? `kind` is 'seat', 'quality', 'price' or 'other', `key` the
      * pill's. true / false by the map's own seats (a filter it cannot judge, quality and price, is ignored: "maybe" is true); undefined
@@ -866,7 +884,7 @@ export function createMapLink(options) {
           const seatBlocks = Array.from(b.svg.querySelectorAll(SEAT_BLOCK_SELECTOR)).map(function (g) { return g.getAttribute('data-section-name') + ': ' + g.querySelectorAll('circle[data-component="svg__seat"][type]').length + ' on sale of ' + g.querySelectorAll('circle[data-component="svg__seat"]').length; });
           return { size: Math.round(box.width) + 'x' + Math.round(box.height), viewBox: b.svg.getAttribute('viewBox'), blocks: b.blocks.length, seatsDrawn: b.svg.querySelectorAll('g.seats circle').length, seatBlocks: seatBlocks.slice(0, 80) };
         }),
-        seats: { ofOurTickets: allSeats.size, ofTicketsShown: shownSeats.size },
+        seats: Object.assign({ ofOurTickets: allSeats.size, ofTicketsShown: shownSeats.size }, coverage()),
         mapData: describeData(seatData.geometry, seatData.availability), // what the page's own seat map requests gave us (null when they did not arrive)
         blocks,
         sections: sections.map(function (s) {

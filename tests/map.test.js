@@ -909,7 +909,7 @@ describe('the greyed blocks, and what the console is told', () => {
     link.update({ sections: [...realSections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
     expect(log).toHaveBeenCalledTimes(1);
     const text = log.mock.calls[0][0];
-    expect(text).toMatch(/^Seat map: 68 blocks, 4 linked to a section of ours, 3 greyed\./);
+    expect(text).toMatch(/^Seat map: 68 blocks, 4 linked to a section of ours, 3 toned down\./);
     expect(text).toMatch(/linked to no section of ours: WEST LOWER 8 \[s_38\]/); // the first few, with their ids
     expect(text).toContain('Sections of ours with no block: NOWHERE.');
     link.update({ sections: [...realSections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
@@ -1409,6 +1409,31 @@ describe('with the map\'s own seat data', () => {
     link.update(state({}, { quantity: 1, show: ['standing'] }));
     expect(link.canMatch('other', 'resale')).toBe(true); // resale standing
     expect(link.canMatch('seat', 'frontrows')).toBe(false); // standing has no row
+  });
+
+  it('says how many places are on sale by its own data, whatever is filtered, and nothing without it', () => {
+    start();
+    link.update(state({}, { seat: 'frontrows', frontRows: 5, quantity: 4 }));
+    expect(link.seatCounts({ firstRows: [1], frontRows: 5 })).toMatchObject({ seats: 50, standing: 822, all: 872, frontrows: 3 });
+    link.update(state({}, {}));
+    expect(link.seatCounts({ firstRows: [1], frontRows: 5 })).toMatchObject({ all: 872 }); // the same with nothing filtered
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    expect(link.seatCounts({ firstRows: [1], frontRows: 5 })).toBeNull();
+  });
+
+  it('checks that the map\'s seats on sale hold every seat of our list (they should: the list has fewer), in the Map report and the console', () => {
+    buildMap();
+    const lines = [];
+    link = createMapLink({ log: (m) => lines.push(m) });
+    link.setMapData({ geometry, availability });
+    const ticket = (row, from, to) => ({ section: 'NTHL1', originalSection: 'NTHL1', description: 'NORTH LOWER TIER', rowName: row, seatFrom: from, seatTo: to });
+    // NORTH LOWER 1 row C seats 75-77 are on sale on the map; row C seat 1 is not
+    link.update({ ...state(), sections: [{ name: 'NTHL1', tickets: [ticket('C', '75', '76'), ticket('C', '1', '2')] }], matching: [], visible: new Set() });
+    const seats = link.diagnose().seats;
+    expect(seats).toMatchObject({ ofOurTickets: 4, ofOursOnMap: 2, ofOursNotOnMap: 2 });
+    expect(seats.notOnMapSample).toEqual(['NTHL1|C|1', 'NTHL1|C|2']);
+    expect(lines.join('\n')).toMatch(/The map's own data: 50 seats and 822 standing tickets on sale; 2 of the 4 seats in our list are among them\./);
   });
 
   it('has no opinion without its data', () => {

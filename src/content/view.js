@@ -310,6 +310,14 @@ export function createView(handlers, version) {
   }
 
   const seatGroup = choiceGroup('Seats', 'seat', SEAT_FILTERS, function (key) { handlers.onSeatSelect(key); });
+  let seatNotes = null; // { all, firstrow, frontrows }: what the counts on the Seats pills are, when the venue's map gave them
+  /** The Seats pills' tooltips: what each is, then (when the map gave the counts) what its count is. */
+  function applySeatTitles() {
+    seatGroup.pills.forEach(function (pill) {
+      pill.title = [pill.getAttribute('data-base-title'), seatNotes ? seatNotes[pill.getAttribute('data-seat')] : null].filter(Boolean).join('\n');
+    });
+  }
+
   const qualityGroup = choiceGroup('Quality', 'quality', QUALITY_FILTERS, function (key) { handlers.onQualitySelect(key); });
   qualityGroup.node.hidden = true; // only once there are quality scores to filter on (they come from the list API)
   const priceGroup = choiceGroup('Price', 'price', PRICE_FILTERS, function (key) { handlers.onPriceSelect(key); });
@@ -615,8 +623,9 @@ export function createView(handlers, version) {
     setFrontRows(n) {
       const pill = seatGroup.pills.find(function (p) { return p.getAttribute('data-seat') === 'frontrows'; });
       pill.setAttribute('data-label', frontRowsLabel(n));
-      pill.title = 'The first ' + n + (n === 1 ? ' row' : ' rows') + ' of each tier. Change how many with the 📍 button (this venue) or in Settings (the default).';
-      renderPill(pill, counts && counts.seat ? counts.seat.frontrows : undefined);
+      pill.setAttribute('data-base-title', 'The first ' + n + (n === 1 ? ' row' : ' rows') + ' of each tier. Change how many with the 📍 button (this venue) or in Settings (the default).');
+      applySeatTitles();
+      renderPill(pill, counts && counts.seat ? counts.seat.frontrows : undefined, 'seat', 'frontrows');
     },
 
     /** The chosen seat filter ('firstrow' | 'frontrows' | 'all'). */
@@ -660,6 +669,12 @@ export function createView(handlers, version) {
         countChoices(priceGroup, 'price', counts.price);
         syncPills();
       }
+    },
+
+    /** What the counts on the Seats pills are ({ all, firstrow, frontrows }: a sentence each), when the venue's map gave them; null when it did not. */
+    setSeatCountNotes(notes) {
+      seatNotes = notes || null;
+      applySeatTitles();
     },
 
     /** The tickets on the page, as [text on Ticketmaster, title here]: the venue panel's badge patterns say how many of them they match. */

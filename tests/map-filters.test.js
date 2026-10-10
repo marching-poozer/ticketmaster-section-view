@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildAvailability, parseFacets, parseGeometry } from '../src/lib/map-data.js';
-import { evaluateAvailability, filtersActive, judgeable } from '../src/lib/map-filters.js';
+import { evaluateAvailability, filtersActive, judgeable, seatCounts } from '../src/lib/map-filters.js';
 
 // Real excerpts of The O2 Belfast's seat map data: NORTH MIDDLE 3 (s_79: rows M and N, seats on sale in groups of 3 and one on its own),
 // NORTH LOWER 1 (s_5: rows C, F, G, J), EAST LOWER 8 (s_22: rows G-K, aisle seats), WEST UPPER 1 (s_49: one resale seat in row U),
@@ -183,5 +183,38 @@ describe('with nothing to go on', () => {
     const result = evaluateAvailability(null, null, none);
     expect(result.blocks.size).toBe(0);
     expect(result.seatKeys.size).toBe(0);
+  });
+});
+
+describe('how many places are on sale, by the map', () => {
+  it('counts every seat on sale and every standing ticket: Any is all of them', () => {
+    expect(seatCounts(availability, { firstRows: [1], frontRows: 5 })).toMatchObject({ seats: 50, standing: 822, all: 872 });
+  });
+
+  it('counts the seats in the first row, and the first N rows, of each tier, as the list does (rows A=1, B=2, ...; tiers where the venue says)', () => {
+    // Row 1 as the only start: only rows A-E count as front; the blocks here have C (NORTH LOWER 1) among them
+    expect(seatCounts(availability, { firstRows: [1], frontRows: 5 })).toMatchObject({ firstrow: 0, frontrows: 3 });
+    // the middle tier starting at row M: its first row is M (NORTH MIDDLE 3 has 7 seats on sale there)
+    expect(seatCounts(availability, { firstRows: ['A', 'M', 'S'], frontRows: 1 })).toMatchObject({ firstrow: 7, frontrows: 7 });
+    // a deep front: rows up to the 14th (N), so NORTH LOWER 1 (10), EAST LOWER 8 (27), NORTH MIDDLE 3 (10) and NORTH MIDDLE 4 (2)
+    expect(seatCounts(availability, { firstRows: [1], frontRows: 14 }).frontrows).toBe(49);
+  });
+
+  it('has no row for standing, and none for a seat in a row it cannot rank', () => {
+    expect(seatCounts(availability, { firstRows: [1], frontRows: 99 }).frontrows).toBe(50); // every seat, none of the standing
+  });
+
+  it('does not depend on any filter: it is not given any', () => {
+    const before = seatCounts(availability, { firstRows: ['A', 'M', 'S'], frontRows: 3 });
+    evaluate({ show: ['resale'], quality: 'top10', search: 'nthm', quantity: 4 }); // (whatever the list is filtered by)
+    expect(seatCounts(availability, { firstRows: ['A', 'M', 'S'], frontRows: 3 })).toEqual(before);
+  });
+
+  it('uses the same defaults as the list when not told the tiers', () => {
+    expect(seatCounts(availability, null)).toEqual(seatCounts(availability, { firstRows: [1], frontRows: 5 }));
+  });
+
+  it('is null without the map\'s data', () => {
+    expect(seatCounts(null, { firstRows: [1], frontRows: 5 })).toBeNull();
   });
 });

@@ -158,6 +158,20 @@ describe('createView', () => {
       expect(q('[data-seat="frontrows"]').textContent).toBe('⭐ First 3 Rows (9)');
     });
 
+    it('says on hover what the counts are when the map gave them, after what each pill is, and takes it away again', () => {
+      const { view, q } = make();
+      view.setFrontRows(4);
+      view.setSeatCountNotes({ all: 'ALL NOTE', firstrow: 'FIRST NOTE', frontrows: 'FRONT NOTE' });
+      expect(q('[data-seat="all"]').title).toBe('ALL NOTE');
+      expect(q('[data-seat="firstrow"]').title).toBe('FIRST NOTE');
+      expect(q('[data-seat="frontrows"]').title).toBe('The first 4 rows of each tier. Change how many with the 📍 button (this venue) or in Settings (the default).\nFRONT NOTE');
+      view.setFrontRows(3); // (the rows change: the note stays)
+      expect(q('[data-seat="frontrows"]').title).toMatch(/^The first 3 rows of each tier\..*\nFRONT NOTE$/s);
+      view.setSeatCountNotes(null);
+      expect(q('[data-seat="all"]').title).toBe('');
+      expect(q('[data-seat="frontrows"]').title).toBe('The first 3 rows of each tier. Change how many with the 📍 button (this venue) or in Settings (the default).');
+    });
+
     it('says on hover how many rows it is and where to change it', () => {
       const { view, q } = make();
       view.setFrontRows(4);

@@ -570,6 +570,67 @@ describe('hosting hooks', () => {
   });
 });
 
+describe('the Seats pills\' counts, from the venue\'s seat map', () => {
+  const seatPills = () => qa('[data-seat]').map((p) => p.textContent);
+  const mapCounts = { all: 872, seats: 50, standing: 822, firstrow: 7, frontrows: 31 };
+
+  it('are the seats on sale by the map, not the tickets the list holds', () => {
+    sampleCards();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => mapCounts });
+    document.body.append(app.root);
+    app.start();
+    expect(seatPills()).toEqual(['Any (872)', '🥇 1st Row (7)', '⭐ First 5 Rows (31)']);
+  });
+
+  it('do not change as other filters are applied (the list\'s own would)', () => {
+    sampleCards();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => mapCounts });
+    document.body.append(app.root);
+    app.start();
+    const before = seatPills();
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click();
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click();
+    q('.search').value = 'zzz';
+    q('.search').dispatchEvent(new Event('input', { bubbles: true }));
+    expect(seatPills()).toEqual(before);
+  });
+
+  it('are asked for with the venue\'s own tiers and how many rows are the front', () => {
+    sampleCards();
+    const seatCounts = vi.fn(() => mapCounts);
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', frontRows: 3 }), version: '1.2.3', seatCounts });
+    document.body.append(app.root);
+    app.start();
+    expect(seatCounts).toHaveBeenCalledWith({ firstRows: [1], frontRows: 3 });
+  });
+
+  it('say on hover what the counts are, and how they differ from the list\'s', () => {
+    sampleCards();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => mapCounts });
+    document.body.append(app.root);
+    app.start();
+    const titles = Object.fromEntries(qa('[data-seat]').map((p) => [p.getAttribute('data-seat'), p.title]));
+    expect(titles.all).toMatch(/^50 seats and 822 standing tickets on sale \(the venue's seat map: every one on sale, whatever the quantity or other filters; Ticketmaster's list holds only what it offers for \d+ tickets?\)$/);
+    expect(titles.firstrow).toMatch(/^7 seats on sale in the first row of each tier/);
+    expect(titles.frontrows).toMatch(/^The first 5 rows of each tier\./); // what it is
+    expect(titles.frontrows).toMatch(/31 seats on sale in those rows/); // what its count is
+  });
+
+  it('are the list\'s tickets, as before, when the map has nothing to say', () => {
+    sampleCards();
+    const plain = (() => { app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3' }); document.body.append(app.root); app.start(); return seatPills(); })();
+    app.destroy && app.destroy();
+    document.body.innerHTML = '';
+    sampleCards();
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => null });
+    document.body.append(app.root);
+    app.start();
+    expect(seatPills()).toEqual(plain);
+    expect(plain[0]).toMatch(/^Any \(\d+\)$/);
+    expect(qa('[data-seat]')[0].title).toBe('');
+  });
+});
+
 describe('the ticket quantity', () => {
   const fakeQuantity = () => ({ pending: () => false, tick: vi.fn(), setDesired: vi.fn(), setRemember: vi.fn(), whenSettled: (fn) => fn() });
 
