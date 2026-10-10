@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Ticketmaster Section View",
   "version": "2.0.0",
-  "description": "Seat-scouting pane for Ticketmaster: groups ticket options by section with price, resale-markup and best-seat badges.",
+  "description": "Regroups Ticketmaster's seat-selection list by section and row, with filters, badges, seat numbers and quality scores, and links it to the venue's seat map.",
   "minimum_chrome_version": "111",
   "permissions": [
     "storage",
