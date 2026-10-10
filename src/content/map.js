@@ -28,6 +28,7 @@
 // None of it is needed: with no map on the page (or one built differently) this does nothing.
 import { LOG_PREFIX } from '../lib/constants.js';
 import { blocksToDim, blockTiers, isSeatedBlock, keyOf, linkBlocks, linkingComplete } from '../lib/map-link.js';
+import { describeData } from '../lib/map-data.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLOCK_SELECTOR = 'path[data-component="svg__section"]';
@@ -88,7 +89,7 @@ function keyOfSeatCircle(circle) {
  * `options.log(message)` hears what it works out (default: the console). `options.document` is for tests.
  * `options.onSeatHover(ticket | null)`, `options.onSeatClick(ticket)`: the mouse is on a seat of the zoomed map, whose ticket is still in our list.
  * `options.onPresence(bool)` hears when the page gains or loses an interactive map.
- * Returns { update, summary, diagnose, showLabels, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
+ * Returns { update, setMapData, summary, diagnose, showLabels, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
  */
 export function createMapLink(options) {
   const opts = options || {};
@@ -107,6 +108,7 @@ export function createMapLink(options) {
   let ready = false; // the whole list has loaded (until then, "no tickets here" just means "not loaded yet")
   let standingOnly = false; // the filters show only Standing tickets: nothing at a seat can match
   let nothingMatches = false; // the filters leave no ticket of ours at all
+  let seatData = { geometry: null, availability: null }; // what the map itself knows: every block, row and seat, and which are on sale (see lib/map-data.js)
   let allSeats = new Set(); // 'section|row|seat' of every seat any of our tickets covers, whatever the filters
   let shownSeats = new Map(); // ...and of those the filters leave: seat -> its ticket
   let hoveredSeat = null; // the ticket whose seat the mouse is on
@@ -668,6 +670,12 @@ export function createMapLink(options) {
      * Tell it about our list: `sections` = [{ name, tickets }] (all), `visible` = Set of the names that still show tickets
      * after the filters, `matching` = the tickets the filters leave, `ready` = the whole list has loaded.
      */
+    /** The seat map's own data, as the page loaded it (`{ geometry, availability }`, either may be null), from content/map-data-store.js. */
+    setMapData(data) {
+      seatData = { geometry: (data && data.geometry) || null, availability: (data && data.availability) || null };
+      drawAll();
+    },
+
     update(state) {
       sections = state.sections || [];
       visible = state.visible || new Set();
@@ -722,6 +730,7 @@ export function createMapLink(options) {
           return { size: Math.round(box.width) + 'x' + Math.round(box.height), viewBox: b.svg.getAttribute('viewBox'), blocks: b.blocks.length, seatsDrawn: b.svg.querySelectorAll('g.seats circle').length, seatBlocks: seatBlocks.slice(0, 80) };
         }),
         seats: { ofOurTickets: allSeats.size, ofTicketsShown: shownSeats.size },
+        mapData: describeData(seatData.geometry, seatData.availability), // what the page's own seat map requests gave us (null when they did not arrive)
         blocks,
         sections: sections.map(function (s) {
           const linked = main ? (main.links.sectionToBlocks.get(s.name) || []).map(function (i) { return main.blocks[i].name; }) : [];

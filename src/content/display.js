@@ -15,6 +15,7 @@ import { MSG } from '../lib/protocol.js';
 import { applySettingsChanges, loadSettings } from '../lib/settings.js';
 import { createApp } from './app.js';
 import { createInline } from './inline.js';
+import { mapData } from './map-data-store.js';
 import { createMapLink } from './map.js';
 import { createPane } from './pane.js';
 
@@ -57,7 +58,7 @@ function mapNote(summary) {
 /** Start Section View on this page. Resolves to a handle with destroy() (used by tests). */
 export async function initDisplay() {
   let settings = await loadSettings();
-  let live = null; // { app, pane, inline, map } while Section View is on; null while it is switched off
+  let live = null; // { app, pane, inline, map, stopData } while Section View is on; null while it is switched off
   let available = null; // is Ticketmaster's pane on the page? (null = not known yet)
 
   /** Build the app and its two hosts, and make one of them responsible for the view. */
@@ -90,6 +91,9 @@ export async function initDisplay() {
       onMapReport() { return reportOnMap(app, map); },
     });
     app.setMapAvailable(map.present());
+    // What the page's own seat map requests gave (every seat on sale, whatever the quantity): the map takes it as it comes.
+    map.setMapData(mapData.get());
+    const stopData = mapData.subscribe(function (state) { map.setMapData(state); });
     const pane = createPane(app, settings, { active: false });
     const inline = createInline(app, {
       onAvailability(isAvailable) {
@@ -97,7 +101,7 @@ export async function initDisplay() {
         reconcile();
       },
     });
-    live = { app, pane, inline, map };
+    live = { app, pane, inline, map, stopData };
     reconcile();
   }
 
@@ -107,6 +111,7 @@ export async function initDisplay() {
     const old = live;
     live = null;
     available = null;
+    old.stopData();
     old.map.destroy();
     old.inline.destroy();
     old.pane.destroy();

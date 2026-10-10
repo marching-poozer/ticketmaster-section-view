@@ -78,7 +78,8 @@ Click the ⚙ in the view's header (or open the extension's options page) for:
 ## Privacy
 
 - It asks for two permissions: **storage**, to remember your settings in your browser, and **contextMenus**, for the on/off item in the toolbar icon's menu. Neither can read any page.
-- It runs only on Ticketmaster sites, reads the page you are on, and makes the same ticket-list requests the page itself makes, with your own browser session, one at a time and no faster than scrolling would. If Ticketmaster refuses them it stops. **Nothing is sent anywhere else.**
+- It runs only on Ticketmaster sites, reads the page you are on, and makes the same ticket-list requests the page itself makes, with your own browser session, one at a time and no faster than scrolling would. If Ticketmaster refuses them it stops. 
+- On a page with a seat map it also reads, as the page receives them, the two responses the page already asks for to draw that map (the venue's layout, and which seats are on sale). A small script in the page's own context wraps the page's `fetch` to copy just those two responses, and leaves everything else alone; it asks for nothing extra and does not pass on the page's address or keys. **Nothing is sent anywhere else.**
 
 ## Development
 
