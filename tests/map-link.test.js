@@ -337,6 +337,45 @@ describe('when only Standing tickets are showing', () => {
   });
 });
 
+describe('with the map\'s own seat data', () => {
+  const blocks = [
+    { id: 'a', name: 'A', active: true },
+    { id: 'b', name: 'B', active: true },
+    { id: 'c', name: 'C', active: true },
+    { id: 'd', name: 'D', active: false },
+    { id: 'e', name: 'E 5', active: true },
+  ];
+  const links = { blockToSection: new Map([[0, 'A'], [1, 'B']]), sectionToBlocks: new Map() };
+  // A: the list shows tickets. B: linked, its tickets are out. C: not in the list. E: not in the list, a block of seats.
+  const visible = new Set(['A']);
+
+  it('never dims a block the map has seats on sale for that pass the filters, whether or not the list has it', () => {
+    const tiers = blockTiers(blocks, links, visible, { seatMatch: () => true });
+    expect(tiers.filtered).toEqual([]); // B (its tickets are out) and C (not listed) have seats that pass
+    expect(tiers.inactive).toEqual([3]);
+  });
+
+  it('dims a block with no seat that passes, whether or not the list has it (B has listed tickets out; C and E have none listed)', () => {
+    expect(blockTiers(blocks, links, visible, { seatMatch: () => false }).filtered).toEqual([1, 2, 4]);
+  });
+
+  it('never dims a block the list shows tickets for, whatever the map says (the list is the one that has them)', () => {
+    expect(blockTiers(blocks, links, visible, { seatMatch: () => false }).filtered).not.toContain(0);
+  });
+
+  it('falls back to what it did without the data for a block it knows nothing about', () => {
+    const only = (i) => (i === 1 ? true : undefined); // data for B only
+    expect(blockTiers(blocks, links, visible, { seatMatch: only }).filtered).toEqual([]); // B spared; C and E unlisted: left alone as ever
+    expect(blockTiers(blocks, links, visible, { seatMatch: (i) => (i === 2 ? true : undefined) }).filtered).toEqual([1]); // B: listed, out, no data: dimmed as ever
+    expect(blockTiers(blocks, links, visible, { seatMatch: () => undefined, standingOnly: true }).filtered).toEqual([1, 4]); // the Standing rule still holds
+  });
+
+  it('takes a better word than the links on whether the list shows a block (the geometry names a section exactly)', () => {
+    expect(blockTiers(blocks, links, new Set(), { listedVisible: (i) => i === 1 }).filtered).toEqual([0]); // B shown by that word; A dimmed by the links as ever
+    expect(blockTiers(blocks, links, new Set(), { listedVisible: (i) => i === 2 }).filtered).toEqual([0, 1]); // C shown, but it was never going to be dimmed
+  });
+});
+
 describe('whether the linking is complete', () => {
   const links = { blockToSection: new Map([[0, 'A'], [1, 'B']]), sectionToBlocks: new Map() };
 

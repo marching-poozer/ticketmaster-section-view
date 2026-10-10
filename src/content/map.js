@@ -29,6 +29,7 @@
 import { LOG_PREFIX } from '../lib/constants.js';
 import { blocksToDim, blockTiers, isSeatedBlock, keyOf, linkBlocks, linkingComplete } from '../lib/map-link.js';
 import { describeData } from '../lib/map-data.js';
+import { evaluateAvailability } from '../lib/map-filters.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLOCK_SELECTOR = 'path[data-component="svg__section"]';
@@ -89,7 +90,7 @@ function keyOfSeatCircle(circle) {
  * `options.log(message)` hears what it works out (default: the console). `options.document` is for tests.
  * `options.onSeatHover(ticket | null)`, `options.onSeatClick(ticket)`: the mouse is on a seat of the zoomed map, whose ticket is still in our list.
  * `options.onPresence(bool)` hears when the page gains or loses an interactive map.
- * Returns { update, setMapData, summary, diagnose, showLabels, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
+ * Returns { update, setMapData, canMatch, summary, diagnose, showLabels, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
  */
 export function createMapLink(options) {
   const opts = options || {};
@@ -109,6 +110,9 @@ export function createMapLink(options) {
   let standingOnly = false; // the filters show only Standing tickets: nothing at a seat can match
   let nothingMatches = false; // the filters leave no ticket of ours at all
   let seatData = { geometry: null, availability: null }; // what the map itself knows: every block, row and seat, and which are on sale (see lib/map-data.js)
+  let geometryByName = new Map(); // keyOf(block name) -> geometry block, for a map whose block ids are not the geometry's
+  let filters = null; // what the list is filtered by, in the terms of lib/map-filters.js (null: not told)
+  let evaluation = null; // which seats on sale pass those filters, per block (null without the map's data); see recompute()
   let allSeats = new Set(); // 'section|row|seat' of every seat any of our tickets covers, whatever the filters
   let shownSeats = new Map(); // ...and of those the filters leave: seat -> its ticket
   let hoveredSeat = null; // the ticket whose seat the mouse is on
@@ -221,6 +225,60 @@ export function createMapLink(options) {
     return defs;
   }
 
+  // --- what the map itself knows about seats ------------------------------------------
+
+  /** Judge every seat on sale under the filters on screen (lib/map-filters.js). Needs both halves of the map's data. */
+  function recompute() {
+    const { geometry, availability } = seatData;
+    geometryByName = new Map(geometry ? geometry.blocks.map(function (b) { return [keyOf(b.name), b]; }) : []);
+    evaluation = geometry && availability ? evaluateAvailability(availability, geometry, filters || {}, listedNamesOf) : null;
+  }
+
+  /** The geometry's block for a block of the map in the page: by the id they share, else by name. */
+  function geometryBlockOf(block) {
+    const geometry = seatData.geometry;
+    return geometry ? geometry.byBlockId.get(block.id) || geometryByName.get(keyOf(block.name)) || null : null;
+  }
+
+  /** What our list calls the section of a geometry block (the standing floor is "STAND" there, "STANDING-OVER 14'S ONLY" here), for the search. */
+  function listedNamesOf(geometryBlockId) {
+    const names = [];
+    bindings.forEach(function (binding) {
+      binding.blocks.forEach(function (block, index) {
+        const geo = geometryBlockOf(block);
+        const section = binding.links.blockToSection.get(index);
+        if (geo && geo.id === geometryBlockId && section !== undefined) names.push(section);
+      });
+    });
+    return names;
+  }
+
+  /** Does our list show tickets for this block's section after the filters? By the links, and by the geometry's own name for the section. */
+  function listedVisible(binding, index) {
+    const section = binding.links.blockToSection.get(index);
+    if (section !== undefined && visible.has(section)) return true;
+    const geo = geometryBlockOf(binding.blocks[index]);
+    return !!geo && !!geo.section && visible.has(geo.section);
+  }
+
+  /**
+   * For blockTiers: does the map have a seat on sale in this block that passes the filters it can judge? true / false, or undefined
+   * for a block it has no data for, and always undefined while nothing is filtered (the map is left as Ticketmaster draws it).
+   */
+  function seatMatchFor(binding) {
+    if (!evaluation || !evaluation.active) return undefined;
+    return function (index) {
+      const geo = geometryBlockOf(binding.blocks[index]);
+      if (!geo) return undefined;
+      const found = evaluation.blocks.get(geo.id);
+      return !!found && (found.groups > 0 || found.standing > 0);
+    };
+  }
+
+  function tierOptions(binding) {
+    return { standingOnly, seatMatch: seatMatchFor(binding), listedVisible: function (index) { return listedVisible(binding, index); } };
+  }
+
   /** The seat circles of the tickets the mouse is on, and the one shown on the map, in this map: [{ cx, cy, r }]. */
   function seatsToRing(binding) {
     const found = [];
@@ -244,15 +302,21 @@ export function createMapLink(options) {
   }
 
   /**
-   * The seats that are on sale (the map marks them with a type) and have a ticket of ours that the filters leave out: [{ cx, cy, r }].
-   * With only Standing tickets showing, EVERY seat on sale is out, whether or not the list has a ticket for it.
+   * The seats on the zoomed map to grey: [{ cx, cy, r }]. With the map's own data: every seat on sale that is in no group of the
+   * quantity chosen passing the filters (a seat the list has no ticket for stays as it is if it passes). Without it: the on-sale seats
+   * (the map marks them with a type) that have a ticket of ours the filters leave out, and with only Standing showing, all of them.
    */
   function seatsToGrey(binding) {
     const grey = [];
-    binding.svg.querySelectorAll('g.seats circle[data-component="svg__seat"][type]').forEach(function (seat) {
+    const placed = function (seat) { grey.push({ cx: seat.getAttribute('cx'), cy: seat.getAttribute('cy'), r: parseFloat(seat.getAttribute('r')) || 15 }); };
+    const known = seatData.availability && evaluation && evaluation.active;
+    binding.svg.querySelectorAll('g.seats circle[data-component="svg__seat"]').forEach(function (seat) {
       const key = keyOfSeatCircle(seat);
-      if (standingOnly || (key !== null && allSeats.has(key) && !shownSeats.has(key))) {
-        grey.push({ cx: seat.getAttribute('cx'), cy: seat.getAttribute('cy'), r: parseFloat(seat.getAttribute('r')) || 15 });
+      const onSale = known && key !== null ? seatData.availability.bySeatKey.get(key) : null;
+      if (onSale) {
+        if (!evaluation.seatKeys.has(key)) placed(seat); // the map says it is on sale, and it is in no group that passes
+      } else if (seat.hasAttribute('type') && (standingOnly || (key !== null && allSeats.has(key) && !shownSeats.has(key)))) {
+        placed(seat);
       }
     });
     return grey;
@@ -264,14 +328,23 @@ export function createMapLink(options) {
     // Loading or loaded, a block is drawn the same way (the note in our header says the list is still arriving): one whose section
     // has tickets, all out by the filters, is toned down; one no section matches is left alone, as we know nothing about it.
     const known = sections.length > 0; // with no tickets yet there is nothing to say
-    const tiers = enabled && known && !zoomed ? blockTiers(current(binding), binding.links, visible, { standingOnly }) : NO_TIERS;
+    const tiers = enabled && known && !zoomed ? blockTiers(current(binding), binding.links, visible, tierOptions(binding)) : NO_TIERS;
     const faded = tiers.inactive; // the map's own unavailable blocks are always ghosted and cross-hatched (once we know the list), so the three levels read the same whether or not anything is filtered
     const dim = tiers.filtered;
-    // With nothing of ours matching, the blocks the map shows as available that the list lacks are where there may still be something
-    // (Ticketmaster's list leaves some tickets out): they are outlined, so that "check the highlighted blocks" has something to point at.
-    const candidates = enabled && known && !zoomed && nothingMatches && linkingComplete(binding.links, sections)
-      ? current(binding).map(function (b, i) { return i; }).filter(function (i) { return binding.blocks[i].el.getAttribute('data-active') !== 'false' && !binding.links.blockToSection.has(i) && !tiers.filtered.includes(i); })
-      : [];
+    // The blocks where the map has seats that pass the filters but the list has none to show: outlined, so that "check the outlined
+    // blocks" has something to point at. With the map's data that is exact (and only while something is filtered); without it, when
+    // nothing of ours matches, the blocks the map shows as available that the list lacks.
+    let candidates = [];
+    if (enabled && known && !zoomed) {
+      const match = seatMatchFor(binding);
+      if (match) {
+        candidates = binding.blocks.map(function (b, i) { return i; }).filter(function (i) {
+          return binding.blocks[i].el.getAttribute('data-active') !== 'false' && match(i) === true && !listedVisible(binding, i);
+        });
+      } else if (!evaluation && nothingMatches && linkingComplete(binding.links, sections)) {
+        candidates = binding.blocks.map(function (b, i) { return i; }).filter(function (i) { return binding.blocks[i].el.getAttribute('data-active') !== 'false' && !binding.links.blockToSection.has(i) && !tiers.filtered.includes(i); });
+      }
+    }
     const hatched = new Set(faded.filter(function (i) { return !NOT_A_SECTION.test(binding.blocks[i].name); }));
     const period = hatchPeriod(binding);
     const outline = enabled && !zoomed && highlighted !== null ? binding.links.sectionToBlocks.get(highlighted) || [] : [];
@@ -392,23 +465,58 @@ export function createMapLink(options) {
     if (!map || !map.blocks.length) return null;
     const blocks = current(map);
     const complete = linkingComplete(map.links, sections);
-    const dimmed = new Set(sections.length ? blocksToDim(blocks, map.links, visible, { standingOnly }) : []);
+    const options = tierOptions(map);
+    const dimmed = new Set(sections.length ? blocksToDim(blocks, map.links, visible, options) : []);
     const veiled = dimmed.size;
-    const matched = blocks.filter(function (b, i) { const s = map.links.blockToSection.get(i); return b.active && s !== undefined && visible.has(s); }).length;
-    const notDimmed = blocks.filter(function (b, i) { return b.active && !map.links.blockToSection.has(i) && !dimmed.has(i); }); // available, no section of ours, left as the map draws it
-    const unlinked = notDimmed.map(function (b) { return b.name + (b.id ? ' [' + b.id + ']' : ''); });
+    const matched = blocks.filter(function (b, i) { return b.active && listedVisible(map, i); }).length;
     const linkedSections = new Set(map.links.blockToSection.values());
+    const hasData = evaluation !== null;
+    let unlistedBlocks; // available blocks the list has nothing for (not dimmed): they are left as the map draws them
+    if (hasData) {
+      // The geometry names every block's section exactly, so "not in the list" is known without the links being complete.
+      const sectionKeys = new Set(sections.map(function (s) { return keyOf(s.name); }));
+      unlistedBlocks = blocks.filter(function (b, i) {
+        const geo = geometryBlockOf(b);
+        const info = geo && seatData.availability.byBlock.get(geo.id);
+        const onSale = !!info && (info.seats.length > 0 || info.standing.length > 0);
+        return b.active && !dimmed.has(i) && onSale && !map.links.blockToSection.has(i) && !sectionKeys.has(keyOf(geo.section));
+      });
+    } else {
+      unlistedBlocks = blocks.filter(function (b, i) { return b.active && !map.links.blockToSection.has(i) && !dimmed.has(i); });
+    }
+    const unlinked = blocks.filter(function (b, i) { return b.active && !map.links.blockToSection.has(i) && !dimmed.has(i); }).map(function (b) { return b.name + (b.id ? ' [' + b.id + ']' : ''); });
+    const isStanding = function (b) {
+      const geo = hasData ? geometryBlockOf(b) : null;
+      return geo ? geo.generalAdmission : !isSeatedBlock(b);
+    };
+    // Blocks where the map has seats that pass the filters and the list has nothing to show: where the list is missing something.
+    const match = seatMatchFor(map);
+    let mapOnlyBlocks = 0;
+    let mapOnlySeats = 0;
+    if (match) {
+      blocks.forEach(function (b, i) {
+        if (!b.active || match(i) !== true || listedVisible(map, i)) return;
+        const found = evaluation.blocks.get(geometryBlockOf(b).id);
+        mapOnlyBlocks += 1;
+        mapOnlySeats += found.seatKeys.size + found.standing;
+      });
+    }
     return {
       blocks: blocks.length,
       linked: map.links.blockToSection.size,
       ready, // the whole list has loaded (until then more tickets may still arrive)
       complete, // every section of ours has its block: an available block with no section is then really not in the list
-      veiled, // blocks toned down: their section has tickets, none left by the filters (or, with only Standing showing, a block of seats)
+      veiled, // blocks toned down: nothing of theirs passes the filters (the list's tickets, or with the map's data its seats on sale)
       standingOnly, // the filters show only Standing tickets
+      hasData, // the map's own seats are known: veiled blocks are then ones where no seat on sale passes
+      exact: hasData ? evaluation.exact : null, // false: a filter the map cannot judge (quality, price, ...) was ignored
+      filtered: hasData ? evaluation.active : null, // is anything filtered
       matched, // available blocks that have tickets after the filters
       unlinked, // available blocks no section matches that are not marked (all but, with only Standing showing, the blocks of seats)
-      unlisted: complete ? unlinked.length : 0, // ...of which are known not to be in the list at all (every section has its block)
-      unlistedMayBeStanding: complete ? notDimmed.filter(function (b) { return !isSeatedBlock(b); }).length : 0, // ...and which of those could be a place to stand
+      unlisted: hasData ? unlistedBlocks.length : complete ? unlistedBlocks.length : 0, // ...of which the list has nothing at all for
+      unlistedMayBeStanding: hasData || complete ? unlistedBlocks.filter(isStanding).length : 0, // ...and which of those could be a place to stand
+      mapOnlyBlocks, // blocks with seats that pass the filters that the list has no ticket to show for (with the map's data)
+      mapOnlySeats, // ...and how many seats (or standing tickets) that is
       sectionsWithoutBlock: sections.filter(function (s) { return !linkedSections.has(s.name); }).map(function (s) {
         const described = (s.tickets.find(function (t) { return t.description; }) || {}).description; // what the API calls its tier: to see why it did not link
         return s.name + (described ? ' ("' + described + '")' : '');
@@ -670,9 +778,28 @@ export function createMapLink(options) {
      * Tell it about our list: `sections` = [{ name, tickets }] (all), `visible` = Set of the names that still show tickets
      * after the filters, `matching` = the tickets the filters leave, `ready` = the whole list has loaded.
      */
+    /**
+     * Would a pill find anything on the map, if chosen with everything else as it is? `kind` is 'seat', 'quality', 'price' or 'other', `key` the
+     * pill's. true / false by the map's own seats (a filter it cannot judge, quality and price, is ignored: "maybe" is true); undefined
+     * without its data.
+     */
+    canMatch(kind, key) {
+      if (!evaluation || !filters) return undefined;
+      const f = Object.assign({}, filters);
+      if (kind === 'seat') f.seat = key;
+      else if (kind === 'quality') f.quality = key;
+      else if (kind === 'price') f.price = key;
+      else if (kind === 'other') {
+        f.show = Array.from(new Set((filters.show || []).concat(key)));
+        f.hide = (filters.hide || []).filter(function (k) { return k !== key; });
+      }
+      return evaluateAvailability(seatData.availability, seatData.geometry, f, listedNamesOf).blocks.size > 0;
+    },
+
     /** The seat map's own data, as the page loaded it (`{ geometry, availability }`, either may be null), from content/map-data-store.js. */
     setMapData(data) {
       seatData = { geometry: (data && data.geometry) || null, availability: (data && data.availability) || null };
+      recompute();
       drawAll();
     },
 
@@ -681,6 +808,7 @@ export function createMapLink(options) {
       visible = state.visible || new Set();
       ready = state.ready === true;
       standingOnly = state.standingOnly === true;
+      filters = state.filters || null;
       nothingMatches = sections.length > 0 && (state.matching || []).length === 0;
       // Which seat belongs to which ticket (a ticket covers the seats seatFrom..seatTo of its row), with and without the filters.
       allSeats = new Set();
@@ -690,6 +818,7 @@ export function createMapLink(options) {
       (state.matching || []).forEach(function (t) { matchingCount.set(t.section, (matchingCount.get(t.section) || 0) + 1); });
       (state.matching || []).forEach(function (t) { if (t.rowName) seatsOf(t).forEach(function (n) { shownSeats.set(seatKey(t.section, t.rowName, n), t); }); });
       bindings.forEach(relink);
+      recompute(); // (after the links: it asks them what the list calls a section)
       drawAll();
       report();
     },
@@ -708,14 +837,22 @@ export function createMapLink(options) {
       const main = overview();
       const complete = main ? linkingComplete(main.links, sections) : false;
       const shownOf = function (name) { return visible.has(name); };
+      const match = main ? seatMatchFor(main) : undefined;
       const blocks = main ? current(main).map(function (b, i) {
         const section = main.links.blockToSection.get(i);
+        const geo = main ? geometryBlockOf(b) : null;
+        const info = geo && seatData.availability ? seatData.availability.byBlock.get(geo.id) : null;
+        const found = geo && evaluation ? evaluation.blocks.get(geo.id) : null;
         let state;
         if (!b.active) state = 'unavailable (the map greys it)';
+        else if (match && !listedVisible(main, i) && match(i) === true) state = 'shown (the map has seats on sale that pass the filters' + (evaluation.exact ? '' : ', as far as it can judge them') + '; the list has none to show)';
+        else if (match && !listedVisible(main, i) && match(i) === false) state = 'toned down (no seat on sale there passes the filters' + (evaluation.exact ? '' : ' it can judge') + ')';
         else if (section === undefined && standingOnly && isSeatedBlock(b)) state = 'toned down (only Standing tickets are showing, and this is a block of seats, in the list or not)';
         else if (section === undefined) state = 'LEFT ALONE (the map says available, no section of ours: ' + (complete ? 'not in the list at all, which does not return every ticket' : 'or one of our sections has no block, and may be this one') + ')';
         else state = shownOf(section) ? 'shown (the section has tickets after the filters)' : 'toned down (the section has tickets, none left by the filters' + (ready ? '' : ' so far') + ')';
-        return { name: b.name, id: b.id, available: b.active, section: section === undefined ? null : section, state };
+        const entry = { name: b.name, id: b.id, available: b.active, section: section === undefined ? null : section, state };
+        if (info) entry.map = { seatsOnSale: info.seats.length, standingOnSale: info.standing.reduce(function (n, f) { return n + f.count; }, 0), passing: found ? found.groups + found.standing : 0 }; // (passing: groups of the quantity, or standing tickets)
+        return entry;
       }) : [];
       return {
         enabled,

@@ -629,6 +629,80 @@ describe('the venue\'s seat map', () => {
     expect(q('.message').textContent).toMatch(/shows 1 block with tickets on sale that the list leaves out\. It may match: please check the outlined block on the map\.$/);
   });
 
+  it('tells the map what the list is filtered by: the seat choice, where rows start, the pills, the search and the quantity', () => {
+    sampleCards();
+    const { onSections } = makeMapped();
+    app.start();
+    expect(last(onSections).filters).toMatchObject({ seat: 'all', quality: 'any', price: 'any', show: [], hide: [], search: '', firstRows: [1], frontRows: 5 });
+    expect(typeof last(onSections).filters.quantity).toBe('number');
+    qa('[data-seat="frontrows"]').forEach((p) => p.click());
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click(); // show only
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click();
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click(); // hide
+    expect(last(onSections).filters).toMatchObject({ seat: 'frontrows', show: ['resale'], hide: ['standing'] });
+  });
+
+  describe('with the map\'s own seat data, when the filters leave nothing', () => {
+    const emptyList = () => {
+      sampleCards();
+      makeMapped();
+      app.start();
+      qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click();
+      qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click(); // no ticket is both
+    };
+    const info = (extra = {}) => ({ blocks: 0, mayBeStanding: 0, hasData: true, filtered: true, exact: true, mapOnly: { blocks: 3, seats: 14 }, canMatch: () => false, ...extra });
+
+    it('says the map has seats on sale that match, in the blocks the list leaves out, when it can judge every filter', () => {
+      emptyList();
+      app.setMapUnlisted(info());
+      expect(q('.message').textContent).toBe('Ticketmaster\'s list returned no tickets that match the selected filters, but its map shows seats on sale that do, in 3 blocks that the list leaves out. Please check the outlined blocks on the map.');
+      app.setMapUnlisted(info({ mapOnly: { blocks: 1, seats: 2 } }));
+      expect(q('.message').textContent).toMatch(/in 1 block that the list leaves out\. Please check the outlined block on the map\.$/);
+    });
+
+    it('says they may match when a filter it cannot judge (quality, price) is on', () => {
+      emptyList();
+      app.setMapUnlisted(info({ exact: false }));
+      expect(q('.message').textContent).toBe('Ticketmaster\'s list returned no tickets that match the selected filters, but its map shows seats on sale in 3 blocks that the list leaves out. They may match: please check the outlined blocks on the map.');
+    });
+
+    it('says the map has none either, when it can judge every filter and finds no seat', () => {
+      emptyList();
+      app.setMapUnlisted(info({ mapOnly: { blocks: 0, seats: 0 } }));
+      expect(q('.message').textContent).toBe('No tickets match the selected filters. Nor does the seat map show any seat on sale that does.');
+    });
+
+    it('says only what it always said when it could not judge every filter and finds nothing', () => {
+      emptyList();
+      app.setMapUnlisted(info({ exact: false, mapOnly: { blocks: 0, seats: 0 } }));
+      expect(q('.message').textContent).toBe('No tickets match the selected filters.');
+    });
+
+    it('counts a pill that has none as 0+ only if the map would find something for it: its word replaces the guess', () => {
+      sampleCards();
+      makeMapped();
+      app.start();
+      const vip = () => qa('.pill').find((p) => p.getAttribute('data-badge') === 'vip');
+      app.setMapUnlisted(info({ blocks: 5, canMatch: () => false })); // blocks the list lacks, but no seat there would pass for this pill
+      expect(vip().textContent).toMatch(/\(0\)$/);
+      app.setMapUnlisted(info({ blocks: 0, canMatch: (kind, key) => kind === 'other' && key === 'vip' }));
+      expect(vip().textContent).toMatch(/\(0\+\)$/);
+      app.setMapUnlisted(info({ blocks: 5, canMatch: () => undefined })); // no opinion: the guess
+      expect(vip().textContent).toMatch(/\(0\+\)$/);
+    });
+  });
+
+  it('draws again from what it has when asked (the map\'s data arrived after the list)', () => {
+    sampleCards();
+    makeMapped();
+    app.start();
+    app.setMapUnlisted({ blocks: 4, mayBeStanding: 0 });
+    const before = q('.counter').textContent;
+    app.rerender();
+    expect(q('.counter').textContent).toBe(before);
+    expect(() => makeMapped).not.toThrow();
+  });
+
   it('says what it always said when the map has no such blocks', () => {
     sampleCards();
     makeMapped();

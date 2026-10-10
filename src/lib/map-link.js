@@ -176,12 +176,19 @@ export function isSeatedBlock(block) {
  * when every section has found its block): Ticketmaster's list does not return every ticket (it keeps larger blocks of seats
  * unbroken, so it leaves some out for the quantity asked), yet the map shows them and they can be bought there. Not being in
  * our list says nothing about whether a block has seats, so it must never look as if it has none.
- * ONE exception, `options.standingOnly` (the filters show only Standing tickets): a standing ticket is for the floor, never for a
- * block of seats, so a block we can tell is a block of seats (isSeatedBlock) has nothing to match whether or not the list has it.
+ * ONE exception, `options.standingOnly` (the filters show only Standing tickets): a standing ticket is never for a block of seats, so a
+ * block we can tell is a block of seats (isSeatedBlock) has nothing to match whether or not the list has it.
+ * WITH the map's own seat data (`options.seatMatch(index)`: true = some seat on sale there passes the filters the map can judge, false =
+ * none does, undefined = no data for this block; see lib/map-filters.js) the map's word is better than the list's: a block with such a
+ * seat is never dimmed (the list leaves tickets out), a block with none is dimmed whether or not the list has it, and the heuristics
+ * above (standingOnly, isSeatedBlock) are not needed for it.
+ * `options.listedVisible(index)` may say better than the links whether a block's section shows tickets in the list.
  * `visible`: the names of the sections that still show tickets. Each is a list of block indexes.
  */
 export function blockTiers(blocks, links, visible, options) {
   const standingOnly = !!(options && options.standingOnly);
+  const seatMatch = options && typeof options.seatMatch === 'function' ? options.seatMatch : null;
+  const listedVisible = options && typeof options.listedVisible === 'function' ? options.listedVisible : null;
   const tiers = { filtered: [], inactive: [] };
   blocks.forEach(function (block, index) {
     if (block.active === false) {
@@ -189,7 +196,14 @@ export function blockTiers(blocks, links, visible, options) {
       return;
     }
     const section = links.blockToSection.get(index);
-    if (section === undefined ? standingOnly && isSeatedBlock(block) : !visible.has(section)) tiers.filtered.push(index);
+    if ((section !== undefined && visible.has(section)) || (listedVisible !== null && listedVisible(index) === true)) return; // the list has tickets that pass
+    const seats = seatMatch ? seatMatch(index) : undefined;
+    if (seats === true) return; // the map has seats on sale that pass: never dim a block that has them
+    if (seats === false) {
+      tiers.filtered.push(index); // the map says no seat on sale there passes
+      return;
+    }
+    if (section === undefined ? standingOnly && isSeatedBlock(block) : true) tiers.filtered.push(index);
   });
   return tiers;
 }

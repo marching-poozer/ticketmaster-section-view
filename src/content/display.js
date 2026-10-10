@@ -50,8 +50,17 @@ function mapNote(summary) {
   // Still loading: the map is being updated as tickets arrive.
   if (!summary.ready) return 'Seat map: updating as tickets load: ' + summary.matched + ' block' + (summary.matched === 1 ? ' has' : 's have') + ' matching tickets so far.';
   const parts = [];
-  if (summary.veiled > 0) parts.push(plural(summary.veiled) + ' dimmed: none of the tickets listed there match the current filters' + (summary.standingOnly ? ' (only Standing tickets are showing, which no block of seats can have)' : '') + '.');
-  if (summary.unlisted > 0) parts.push(plural(summary.unlisted) + (summary.unlisted === 1 ? ' is' : ' are') + ' available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so ' + (summary.unlisted === 1 ? 'it is' : 'they are') + ' left as the map shows ' + (summary.unlisted === 1 ? 'it' : 'them') + '.');
+  if (summary.veiled > 0) {
+    parts.push(plural(summary.veiled) + ' dimmed: ' + (summary.hasData
+      // with the map's own seats: none on sale there passes (a filter it cannot judge is not held against a block)
+      ? 'no seats on sale there match the current filters' + (summary.exact === false ? ' (the map cannot judge quality, price or your own badges)' : '') + '.'
+      : 'none of the tickets listed there match the current filters' + (summary.standingOnly ? ' (only Standing tickets are showing, which no block of seats can have)' : '') + '.'));
+  }
+  if (summary.hasData && summary.filtered) {
+    if (summary.mapOnlyBlocks > 0) parts.push(plural(summary.mapOnlyBlocks) + (summary.mapOnlyBlocks === 1 ? ' is' : ' are') + ' outlined: the map has seats on sale that ' + (summary.exact ? 'match' : 'may match') + ' the filters, but Ticketmaster\'s list does not include ' + (summary.mapOnlyBlocks === 1 ? 'it' : 'them') + '.');
+  } else if (summary.unlisted > 0) {
+    parts.push(plural(summary.unlisted) + (summary.unlisted === 1 ? ' is' : ' are') + ' available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so ' + (summary.unlisted === 1 ? 'it is' : 'they are') + ' left as the map shows ' + (summary.unlisted === 1 ? 'it' : 'them') + '.');
+  }
   return parts.length ? 'Seat map: ' + parts.join(' ') : null;
 }
 
@@ -81,7 +90,15 @@ export async function initDisplay() {
         map.update(state);
         const summary = map.summary();
         // (the list is told first: it decides what to say when the filters leave nothing, and how its pills count, in the same render)
-        app.setMapUnlisted(summary ? { blocks: summary.unlisted, mayBeStanding: summary.unlistedMayBeStanding } : null);
+        app.setMapUnlisted(summary ? {
+          blocks: summary.unlisted,
+          mayBeStanding: summary.unlistedMayBeStanding,
+          hasData: summary.hasData,
+          exact: summary.exact,
+          filtered: summary.filtered,
+          mapOnly: { blocks: summary.mapOnlyBlocks, seats: summary.mapOnlySeats },
+          canMatch: map.canMatch,
+        } : null);
         app.setMapNote(mapNote(summary));
       },
       onSectionHover(name, open) { map.hover(name, open); },
@@ -93,7 +110,10 @@ export async function initDisplay() {
     app.setMapAvailable(map.present());
     // What the page's own seat map requests gave (every seat on sale, whatever the quantity): the map takes it as it comes.
     map.setMapData(mapData.get());
-    const stopData = mapData.subscribe(function (state) { map.setMapData(state); });
+    const stopData = mapData.subscribe(function (state) {
+      map.setMapData(state);
+      app.rerender(); // (the list's message and pills say what the map knows)
+    });
     const pane = createPane(app, settings, { active: false });
     const inline = createInline(app, {
       onAvailability(isAvailable) {

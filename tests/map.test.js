@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createMapLink, seatsOf } from '../src/content/map.js';
 import { picksToTickets } from '../src/lib/quickpicks.js';
 import { sectionsOf } from '../src/lib/map-link.js';
+import { buildAvailability, parseFacets, parseGeometry } from '../src/lib/map-data.js';
 
 const o2 = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/o2-map-blocks.json'), 'utf8'));
 const real = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/quickpicks-resale-standing.json'), 'utf8'));
@@ -1293,6 +1294,189 @@ describe('when the filters leave nothing of ours but the map shows blocks the li
     const summary = link.summary();
     expect(summary.unlistedMayBeStanding).toBe(1); // THE PIT; the numbered blocks are seats
     expect(summary.unlisted).toBeGreaterThan(1);
+  });
+});
+
+describe('with the map\'s own seat data', () => {
+  // Real excerpts of The O2 Belfast's seat map data (tests/fixtures): NORTH LOWER 1 (s_5, rows C F G J), EAST LOWER 8 (s_22), NORTH MIDDLE 3 (s_79,
+  // groups of 3 in rows M and N), NORTH MIDDLE 4 (s_78), WEST UPPER 1 (s_49: one resale seat), the standing floor (s_112), NORTH MIDDLE 5 (s_77: nothing).
+  const fixture = (name) => JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures', name), 'utf8'));
+  const geometry = parseGeometry(fixture('o2-map-geometry.json'));
+  const availability = buildAvailability(geometry, parseFacets(fixture('o2-map-facets.json')));
+  const off = { seat: 'all', quality: 'any', price: 'any', show: [], hide: [], search: '', firstRows: [1], frontRows: 5, quantity: 2 };
+  // The list has NTHU3, the standing floor, WESTU1 and WESTU7; with NTHL1 added it has a section for NORTH LOWER 1 too.
+  const nthl1 = { name: 'NTHL1', tickets: [{ section: 'NTHL1', originalSection: 'NTHL1', description: 'NORTH LOWER TIER' }] };
+  const state = (extra = {}, filters = {}) => ({ sections: [...realSections, nthl1], visible: new Set(), matching: [], ready: true, filters: { ...off, ...filters }, ...extra });
+  const candidates = () => Array.from(overlay().querySelectorAll('path[data-tmsv-candidate]')).map((p) => p.getAttribute('d'));
+  const start = () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.setMapData({ geometry, availability });
+  };
+
+  it('leaves the map as it is while nothing is filtered, as ever', () => {
+    start();
+    link.update(state({ visible: new Set(['NTHL1', 'NTHU3', "STANDING-OVER 14'S ONLY", 'WESTU1', 'WESTU7']) }));
+    expect(dimmed()).toEqual([]);
+    expect(candidates()).toEqual([]);
+  });
+
+  it('judges every block by its own seats once something is filtered: a block with no seat on sale that passes is dimmed, listed or not', () => {
+    start();
+    link.update(state({}, { seat: 'frontrows', frontRows: 5 })); // rows A-E of a tier: only NORTH LOWER 1 (row C) has any on sale
+    expect(dimmed()).toContain(dOf('EAST LOWER 8')); // not in the list; its seats are in rows G-K
+    expect(dimmed()).toContain(dOf('NORTH MIDDLE 3', 's_79')); // not in the list: groups of 3 in rows M and N
+    expect(dimmed()).toContain(dOf('NORTH MIDDLE 4'));
+    expect(dimmed()).toContain(dOf('WEST UPPER 1')); // in the list, as a resale seat in row U
+    expect(dimmed()).toContain(dOf('GROUND FLOOR STANDING', 's_112')); // standing has no row
+  });
+
+  it('NEVER dims a block whose seats on sale pass, even though the list has no ticket to show there: it spares and outlines it', () => {
+    start();
+    link.update(state({}, { seat: 'frontrows', frontRows: 5 }));
+    expect(dimmed()).not.toContain(dOf('NORTH LOWER 1')); // the list has tickets there, none in the front rows: the map has row C
+    expect(candidates()).toEqual([dOf('NORTH LOWER 1')]);
+  });
+
+  it('does not outline a block the list shows tickets for', () => {
+    start();
+    link.update(state({ visible: new Set(['NTHL1']) }, { seat: 'frontrows', frontRows: 5 }));
+    expect(candidates()).toEqual([]);
+    expect(dimmed()).not.toContain(dOf('NORTH LOWER 1'));
+  });
+
+  it('respects the quantity: a block whose seats are in groups of 3 has nothing for 4, so it is dimmed', () => {
+    start();
+    link.update(state({}, { search: 'nthm', quantity: 2 }));
+    expect(dimmed()).not.toContain(dOf('NORTH MIDDLE 3', 's_79')); // pairs fit in a group of 3
+    link.update(state({}, { search: 'nthm', quantity: 3 }));
+    expect(dimmed()).not.toContain(dOf('NORTH MIDDLE 3', 's_79'));
+    expect(dimmed()).toContain(dOf('NORTH MIDDLE 4')); // two seats
+    link.update(state({}, { search: 'nthm', quantity: 4 }));
+    expect(dimmed()).toContain(dOf('NORTH MIDDLE 3', 's_79'));
+  });
+
+  it('follows the venue\'s tiers, as the list does: row M is the first row of the middle tier when it starts there', () => {
+    start();
+    link.update(state({}, { seat: 'firstrow', firstRows: ['A', 'M', 'S'] }));
+    expect(dimmed()).not.toContain(dOf('NORTH MIDDLE 3', 's_79'));
+    expect(dimmed()).toContain(dOf('NORTH LOWER 1')); // row C is the 3rd of the lower tier
+    expect(candidates()).toEqual([dOf('NORTH MIDDLE 3', 's_79')]);
+  });
+
+  it('shows only resale: the block with a resale seat for one (not for two together), and the floor\'s resale tickets', () => {
+    start();
+    link.update(state({}, { show: ['resale'], quantity: 1 }));
+    expect(dimmed()).not.toContain(dOf('WEST UPPER 1'));
+    expect(dimmed()).not.toContain(dOf('GROUND FLOOR STANDING', 's_112'));
+    expect(dimmed()).toContain(dOf('NORTH LOWER 1'));
+    link.update(state({}, { show: ['resale'], quantity: 2 }));
+    expect(dimmed()).toContain(dOf('WEST UPPER 1'));
+  });
+
+  it('spares a block when it cannot judge a filter that is on (it never says "none" because of what it cannot see), but still dims what fails the rest', () => {
+    start();
+    link.update(state({}, { quality: 'top10', seat: 'frontrows', frontRows: 5 }));
+    expect(dimmed()).not.toContain(dOf('NORTH LOWER 1'));
+    expect(dimmed()).toContain(dOf('EAST LOWER 8'));
+    expect(link.summary().exact).toBe(false);
+  });
+
+  it('tells the summary what it found', () => {
+    start();
+    link.update(state({}, { seat: 'frontrows', frontRows: 5 }));
+    expect(link.summary()).toMatchObject({ hasData: true, exact: true, filtered: true, mapOnlyBlocks: 1, mapOnlySeats: 3 });
+    expect(link.summary().veiled).toBeGreaterThan(3);
+    link.update(state({ visible: new Set(['NTHU3']) }, {}));
+    expect(link.summary()).toMatchObject({ hasData: true, filtered: false, mapOnlyBlocks: 0 });
+  });
+
+  it('counts the blocks the list has nothing for from the geometry, whether or not every section has its block', () => {
+    start();
+    link.update(state({ visible: new Set(['NTHL1', 'NTHU3', "STANDING-OVER 14'S ONLY", 'WESTU1', 'WESTU7']), sections: [...realSections, nthl1, { name: 'ODDLY_NAMED', tickets: [] }] }, {}));
+    expect(link.summary().complete).toBe(false);
+    expect(link.summary().unlisted).toBe(3); // EAST LOWER 8, NORTH MIDDLE 3 and NORTH MIDDLE 4: seats on sale, nothing in the list
+  });
+
+  it('says whether a pill would find anything on the map, with everything else as it is', () => {
+    start();
+    link.update(state({}, { quantity: 1 }));
+    expect(link.canMatch('other', 'resale')).toBe(true);
+    expect(link.canMatch('other', 'standing')).toBe(true);
+    expect(link.canMatch('seat', 'firstrow')).toBe(false); // no row A on sale in these blocks
+    expect(link.canMatch('seat', 'frontrows')).toBe(true);
+    expect(link.canMatch('quality', 'top10')).toBe(true); // cannot judge: maybe
+    link.update(state({}, { quantity: 1, show: ['standing'] }));
+    expect(link.canMatch('other', 'resale')).toBe(true); // resale standing
+    expect(link.canMatch('seat', 'frontrows')).toBe(false); // standing has no row
+  });
+
+  it('has no opinion without its data', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(state({}, { seat: 'frontrows' }));
+    expect(link.canMatch('seat', 'frontrows')).toBeUndefined();
+    expect(link.summary().hasData).toBe(false);
+  });
+
+  it('says in the Map report what it knows of each block', () => {
+    start();
+    link.update(state({}, { seat: 'frontrows', frontRows: 5 }));
+    const blocks = Object.fromEntries(link.diagnose().blocks.map((b) => [b.id, b]));
+    expect(blocks.s_79).toMatchObject({ map: { seatsOnSale: 10, passing: 0 } });
+    expect(blocks.s_79.state).toMatch(/^toned down \(no seat on sale there passes the filters\)/);
+    expect(blocks.s_5).toMatchObject({ map: { seatsOnSale: 10, passing: 2 } }); // two pairs from the three seats of row C
+    expect(blocks.s_5.state).toMatch(/^shown \(the map has seats on sale that pass the filters; the list has none to show\)/);
+    expect(blocks.s_112.map).toMatchObject({ standingOnSale: 822 });
+    expect(link.diagnose().mapData.availability.seatsOnSale).toBe(50);
+  });
+
+  describe('on the zoomed map', () => {
+    // NORTH MIDDLE 3 as the real map draws it when zoomed: the seats of rows M and N, those on sale marked with a type.
+    const seat = (n, x, y, sale) => `<circle data-component="svg__seat" ${sale ? 'type="primary"' : ''} data-seat-name="${n}" cx="${x}" cy="${y}" r="17"></circle>`;
+    const rowM = [38, 39, 40, 41, 42, 43, 44, 45, 46, 47].map((n) => seat(n, n * 10, 100, [38, 39, 40, 43, 44, 45, 47].includes(n))).join('');
+    const rowN = [39, 40, 41, 42].map((n) => seat(n, n * 10, 200, [39, 40, 41].includes(n))).join('');
+    const buildSeats = () => {
+      document.body.innerHTML = '<svg id="main" data-component="svg" viewBox="0 0 10240 7680"><g class="seats"><g data-component="svg__block" data-section-name="NTHM3" data-section-id="s_79"><g data-row-name="M">' + rowM + '</g><g data-row-name="N">' + rowN + '</g></g></g><g class="polygons"><path data-component="svg__section" data-section-id="s_79" data-section-name="NORTH MIDDLE 3" data-active="true" d="M1 1L2 2z"></path></g></svg>' +
+        '<svg id="mini" data-component="svg" viewBox="0 0 10240 7680"><g class="seats"></g><g class="polygons">' + o2.blocks.map((b, i) => `<path data-component="svg__section" data-section-id="${b.id}" data-section-name="${b.name}" data-active="${b.active}" d="M${i} 0L${i} 10z"></path>`).join('') + '</g></svg>';
+      document.getElementById('main').getBoundingClientRect = () => ({ left: 0, top: 0, width: 10234, height: 9593 });
+      document.getElementById('mini').getBoundingClientRect = () => ({ left: 0, top: 0, width: 209, height: 196 });
+      link = createMapLink({ log: () => {} });
+      link.setMapData({ geometry, availability });
+    };
+    const greyed = () => Array.from(document.querySelectorAll('#main > g[data-tmsv-overlay] circle[fill="#8c8f99"]')).map((c) => c.getAttribute('cx') + ',' + c.getAttribute('cy'));
+    const at = (n, row) => `${n * 10},${row === 'M' ? 100 : 200}`;
+
+    it('greys nothing while nothing is filtered', () => {
+      buildSeats();
+      link.update(state({}, {}));
+      expect(greyed()).toEqual([]);
+    });
+
+    it('greys the seats on sale that are in no group of the quantity that passes: the lone seat, and a row that is not the first', () => {
+      buildSeats();
+      link.update(state({}, { seat: 'firstrow', firstRows: ['A', 'M', 'S'] })); // row M is first; pairs in 38-40 and 43-45
+      expect(greyed().sort()).toEqual([at(47, 'M'), at(39, 'N'), at(40, 'N'), at(41, 'N')].sort()); // seat 47 on its own; row N is the 2nd row
+    });
+
+    it('leaves a seat the list has no ticket for blue when it passes: the list is the one that leaves seats out', () => {
+      buildSeats();
+      link.update(state({}, { seat: 'firstrow', firstRows: ['A', 'M', 'S'] })); // the list has nothing for NTHM3 at all
+      expect(greyed()).not.toContain(at(38, 'M'));
+      expect(greyed()).not.toContain(at(44, 'M'));
+    });
+
+    it('greys by the quantity: for 3 only the whole groups of 3 stay blue', () => {
+      buildSeats();
+      link.update(state({}, { seat: 'frontrows', firstRows: ['A', 'M', 'S'], frontRows: 5, quantity: 3 }));
+      expect(greyed()).toEqual([at(47, 'M')]); // M38-40, M43-45 and N39-41 are groups of 3
+    });
+
+    it('greys every seat on sale when only Standing shows (no group of seats passes)', () => {
+      buildSeats();
+      link.update(state({ standingOnly: true }, { show: ['standing'] }));
+      expect(greyed()).toHaveLength(10); // all ten seats on sale; the seats not on sale are left as the map draws them
+    });
   });
 });
 
