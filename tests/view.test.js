@@ -219,6 +219,57 @@ describe('createView', () => {
       expect(q('[data-badge="attr:aisle"]').textContent).toBe('🚶 Aisle (7)');
     });
 
+    describe('when the venue\'s map shows blocks the list leaves out', () => {
+      const none = { seat: { firstrow: 0, frontrows: 30, all: 311 }, price: { cheapest: 0, sectionlow: 22, any: 311 }, other: { standing: 0, resale: 40, 'attr:aisle': 0 } };
+
+      it('read "0+" for a pill that counts none, and are not dimmed (nobody applies a filter that says there is nothing)', () => {
+        const { view, q, qa } = make();
+        view.setCounts(none);
+        expect(q('[data-seat="firstrow"]').classList.contains('zero')).toBe(true); // before the map has anything to say
+        view.setMaybeMore(() => true);
+        expect(q('[data-seat="firstrow"]').textContent).toBe('🥇 1st Row (0+)');
+        expect(q('[data-seat="firstrow"]').classList.contains('zero')).toBe(false);
+        expect(q('[data-price="cheapest"]').textContent).toBe('🔥 Cheapest (0+)');
+        expect(q('[data-badge="standing"]').textContent).toBe('🧍 Standing (0+)');
+        expect(qa('[data-seat]').map((p) => p.textContent)).toEqual(['Any (311)', '🥇 1st Row (0+)', '⭐ First 5 Rows (30)']); // a count above none is left as it is
+      });
+
+      it('say why on hover, and keep what the tooltip said before', () => {
+        const { view, q } = make();
+        view.setCounts(none);
+        view.setMaybeMore(() => true);
+        expect(q('[data-seat="firstrow"]').title).toBe('None in Ticketmaster\'s list, but its map shows blocks the list leaves out: there may be some.');
+        expect(q('[data-badge="standing"]').title).toMatch(/^[^\n]*\n?.*Click to show only these tickets\nNone in Ticketmaster's list, but its map shows blocks/s);
+      });
+
+      it('can be about one pill and not another (a place to stand is not a block of seats)', () => {
+        const { view, q } = make();
+        view.setCounts(none);
+        view.setMaybeMore((kind, key) => key !== 'standing');
+        expect(q('[data-badge="standing"]').textContent).toBe('🧍 Standing (0)');
+        expect(q('[data-badge="standing"]').classList.contains('zero')).toBe(true);
+        expect(q('[data-seat="firstrow"]').textContent).toBe('🥇 1st Row (0+)');
+      });
+
+      it('go back to "(0)", dimmed, and lose the tooltip, when the map has nothing more to say', () => {
+        const { view, q } = make();
+        view.setCounts(none);
+        view.setMaybeMore(() => true);
+        view.setMaybeMore(null);
+        expect(q('[data-seat="firstrow"]').textContent).toBe('🥇 1st Row (0)');
+        expect(q('[data-seat="firstrow"]').classList.contains('zero')).toBe(true);
+        expect(q('[data-seat="firstrow"]').title).toBe('');
+        expect(q('[data-badge="standing"]').title).not.toMatch(/the list leaves out/);
+      });
+
+      it('also apply to counts that come later', () => {
+        const { view, q } = make();
+        view.setMaybeMore(() => true);
+        view.setCounts(none);
+        expect(q('[data-seat="firstrow"]').textContent).toBe('🥇 1st Row (0+)');
+      });
+    });
+
     it('dim a pill with nothing behind it, unless it is the one chosen', () => {
       const { view, q } = make();
       view.setCounts(counts);

@@ -1232,6 +1232,70 @@ describe('the Map report on a zoomed map', () => {
   });
 });
 
+describe('when the filters leave nothing of ours but the map shows blocks the list lacks', () => {
+  const tickets = picksToTickets(real, { currency: '€' });
+  const nothing = (extra = {}) => ({ sections: realSections, visible: new Set(), matching: [], ready: true, ...extra });
+  const candidates = () => Array.from(overlay().querySelectorAll('path[data-tmsv-candidate]')).map((p) => p.getAttribute('d'));
+
+  it('outlines those blocks (dashed), so there is something to point at: the rest are dimmed and these are not', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(nothing());
+    expect(link.summary().complete).toBe(true);
+    expect(candidates().length).toBe(link.summary().unlisted);
+    expect(candidates().length).toBeGreaterThan(0);
+    expect(candidates()).toContain(dOf('NORTH UPPER 2')); // available on the map, not in the list
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2'));
+    expect(candidates()).not.toContain(dOf('NORTH UPPER 3')); // in the list (and dimmed)
+    expect(candidates()).not.toContain(dOf('SWEST')); // the map greys that one itself
+    expect(overlay().querySelector('path[data-tmsv-candidate]').getAttribute('stroke-dasharray')).toBeTruthy();
+  });
+
+  it('does not while something of ours matches (the matched blocks are the point then)', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(nothing({ visible: new Set(['NTHU3']), matching: tickets.filter((t) => t.section === 'NTHU3') }));
+    expect(candidates()).toEqual([]);
+  });
+
+  it('does not while some section of ours has no block (a block with no section may be that very section)', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(nothing({ sections: [...realSections, { name: 'ODDLY_NAMED', tickets: [] }] }));
+    expect(candidates()).toEqual([]);
+    expect(link.summary().unlisted).toBe(0);
+  });
+
+  it('does not with nothing known of the list, nor when the map link is off', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [], visible: new Set(), matching: [], ready: false });
+    expect(candidates()).toEqual([]);
+    link.update(nothing());
+    expect(candidates().length).toBeGreaterThan(0);
+    link.setEnabled(false);
+    expect(document.querySelectorAll('path[data-tmsv-candidate]')).toHaveLength(0);
+  });
+
+  it('leaves out of them a block of seats when only Standing shows (that one is dimmed: nothing at a seat can match)', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update(nothing({ standingOnly: true }));
+    expect(candidates()).not.toContain(dOf('NORTH UPPER 2'));
+    expect(dimmed()).toContain(dOf('NORTH UPPER 2'));
+  });
+
+  it('says in the summary how many of the blocks the list lacks could be a place to stand', () => {
+    buildMap();
+    host.querySelector('svg g.polygons').insertAdjacentHTML('beforeend', '<path data-component="svg__section" data-section-id="s_900" data-section-name="THE PIT" data-active="true" d="M900 0L900 10z"></path>');
+    link = createMapLink({ log: () => {} });
+    link.update(nothing());
+    const summary = link.summary();
+    expect(summary.unlistedMayBeStanding).toBe(1); // THE PIT; the numbered blocks are seats
+    expect(summary.unlisted).toBeGreaterThan(1);
+  });
+});
+
 describe('when only Standing tickets are showing', () => {
   // The map has blocks of seats (numbered), the floor (a standing block) and ones we can't tell about. Nothing at a seat can match.
   const tickets = picksToTickets(real, { currency: '€' });

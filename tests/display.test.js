@@ -444,6 +444,24 @@ describe('the venue\'s seat map on the page', () => {
     expect(note().textContent).toBe('Seat map: 3 blocks dimmed: none of the tickets listed there match the current filters (only Standing tickets are showing, which no block of seats can have). 1 block is available on the map but not in the list (Ticketmaster\'s list leaves some tickets out), so it is left as the map shows it.');
   });
 
+  it('when the filters leave nothing, says the map has blocks the list lacks, outlines them, and keeps the pills usable', async () => {
+    pageWithMap();
+    await start({ loadMode: 'scroll', seatFilter: 'firstrow' }); // the list has no tickets in a first row
+    await settle(1200);
+    const shadow = () => inlineHost().shadowRoot;
+    expect(shadow().querySelector('.message').textContent).toBe('Ticketmaster\'s list returned no tickets that match the selected filters, but its map shows 1 block with tickets on sale that the list leaves out. It may match: please check the outlined block on the map.');
+    expect(Array.from(overlay().querySelectorAll('path[data-tmsv-candidate]')).map((p) => p.getAttribute('d'))).toEqual([block('BLOCKZ').getAttribute('d')]);
+    const pill = shadow().querySelector('[data-seat="firstrow"]');
+    expect(pill.textContent).toMatch(/\(0\+\)$/);
+    expect(pill.classList.contains('zero')).toBe(false);
+    // choosing "Any" again: the tickets, no message, no outline
+    shadow().querySelector('[data-seat="all"]').click();
+    await settle(1200);
+    expect(shadow().querySelector('.message')).toBeNull();
+    expect(overlay().querySelectorAll('path[data-tmsv-candidate]')).toHaveLength(0);
+    expect(shadow().querySelector('[data-seat="firstrow"]').textContent).toMatch(/\(0\+\)$/); // the map still has a block the list lacks: the count stays "0+", whatever is chosen
+  });
+
   it('updates the map as tickets load: a note says so, and the blocks are marked the same way loading as loaded', async () => {
     pageWithMap({ loaded: false }); // "Loaded 20 of 84": the page has only the start of its list
     await start({ loadMode: 'scroll' });

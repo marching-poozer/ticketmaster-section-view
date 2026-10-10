@@ -14,6 +14,12 @@ import { deleteVenue, loadVenue, normalizeVenue, saveVenue, venueKey } from '../
 import { createPageReader } from './page-reader.js';
 import { createView } from './view.js';
 
+/** What the list says when the filters leave nothing but the map shows blocks the list has no ticket for. */
+function noMatchesButMapHas(blocks) {
+  return 'Ticketmaster\'s list returned no tickets that match the selected filters, but its map shows ' + blocks + ' block' + (blocks === 1 ? '' : 's') +
+    ' with tickets on sale that the list leaves out. ' + (blocks === 1 ? 'It' : 'They') + ' may match: please check the outlined block' + (blocks === 1 ? '' : 's') + ' on the map.';
+}
+
 /** `readerDeps` is for tests (see createPageReader). */
 /**
  * `onSections({ sections, visible, matching, standingOnly, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
@@ -26,6 +32,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
   let appliedScale = null;
+  let mapUnlisted = null; // { blocks, mayBeStanding }: available blocks on the venue's map that the list has no ticket for (see setMapUnlisted)
   let defaultFrontRows = settings.frontRows;
   let globalBadges = settings.customBadges || []; // custom badges for every venue; the venue's own are in venueConfig
   let customBadges = []; // both, compiled; see syncBadges()
@@ -281,7 +288,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     shownCount = shown;
     view.renderCounter(snapshot.tickets.length, snapshot.qty, snapshot.tickets.length - shown);
     if (result.empty === 'no-sections') view.renderMessage('No matching blocks found.');
-    else if (result.empty === 'no-matches') view.renderMessage('No tickets match the selected filters.');
+    else if (result.empty === 'no-matches') view.renderMessage(mapUnlisted && mapUnlisted.blocks > 0 ? noMatchesButMapHas(mapUnlisted.blocks) : 'No tickets match the selected filters.');
     else view.renderGroups(result.groups, state.sort, function (ticket) { reader.clickTicket(ticket, { scroll: options.scrollToClicked }); });
   }
 
@@ -291,6 +298,16 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
 
   return {
     root: view.root,
+
+    /**
+     * The venue's map shows blocks as available that Ticketmaster's list has no ticket for (`blocks`, of which `mayBeStanding` could
+     * be a place to stand), or null when it has none to tell of. A pill that counts none then says "0+" rather than looks dead, and
+     * when the filters leave nothing the list points at the map.
+     */
+    setMapUnlisted(info) {
+      mapUnlisted = info && info.blocks > 0 ? { blocks: info.blocks, mayBeStanding: info.mayBeStanding || 0 } : null;
+      view.setMaybeMore(mapUnlisted === null ? null : function (kind, key) { return key === 'standing' ? mapUnlisted.mayBeStanding > 0 : true; });
+    },
 
     /** The venue's map: the mouse is over (or has left) a block of this section. */
     highlightSection(name) {

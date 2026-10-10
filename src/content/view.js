@@ -233,6 +233,8 @@ export function createView(handlers, version) {
 
   // --- filter pills: Seats and Price are one choice each, Other toggles ---------
   let counts = null; // what each pill would show, from the app (see buildSectionGroups)
+  let maybeMore = null; // (kind, key) => does the venue's map show blocks that may have more of what a pill counts as none? See setMaybeMore
+  const MAYBE_MORE_TITLE = 'None in Ticketmaster\'s list, but its map shows blocks the list leaves out: there may be some.';
 
   // "🚶 Aisle" -> "Aisle"
   const LEADING_ICON = /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*\s+/u;
@@ -241,11 +243,20 @@ export function createView(handlers, version) {
    * A pill reads its label and, once the app has counted, how many tickets it would show. A pill that is
    * hiding its tickets swaps its icon for 🚫 (and is struck through, see the styles).
    */
-  function renderPill(pill, count) {
+  function renderPill(pill, count, kind, key) {
     const label = pill.getAttribute('data-label');
     const shown = pill.getAttribute('data-state') === 'hide' ? '🚫 ' + label.replace(LEADING_ICON, '') : label;
-    pill.textContent = typeof count === 'number' ? shown + ' (' + count + ')' : shown;
-    pill.classList.toggle('zero', count === 0);
+    // None in the list, but the map shows blocks the list leaves out: "0+", and not dimmed (a pill that says none is a pill nobody uses)
+    const maybe = count === 0 && maybeMore !== null && maybeMore(kind, key) === true;
+    pill.textContent = typeof count === 'number' ? shown + ' (' + count + (maybe ? '+' : '') + ')' : shown;
+    pill.classList.toggle('zero', count === 0 && !maybe);
+    if (maybe) {
+      pill.title = [pill.title, MAYBE_MORE_TITLE].filter(Boolean).join('\n');
+      pill.setAttribute('data-maybe-more', '');
+    } else if (pill.hasAttribute('data-maybe-more')) {
+      pill.removeAttribute('data-maybe-more');
+      pill.title = pill.title.split('\n').filter(function (line) { return line !== MAYBE_MORE_TITLE; }).join('\n');
+    }
   }
 
   /**
@@ -295,7 +306,7 @@ export function createView(handlers, version) {
   }
 
   function countChoices(group, attribute, byKey) {
-    group.pills.forEach(function (pill) { renderPill(pill, byKey ? byKey[pill.getAttribute('data-' + attribute)] : undefined); });
+    group.pills.forEach(function (pill) { const key = pill.getAttribute('data-' + attribute); renderPill(pill, byKey ? byKey[key] : undefined, attribute, key); });
   }
 
   const seatGroup = choiceGroup('Seats', 'seat', SEAT_FILTERS, function (key) { handlers.onSeatSelect(key); });
@@ -360,7 +371,7 @@ export function createView(handlers, version) {
       if (state === 'off') pill.removeAttribute('aria-label');
       else pill.setAttribute('aria-label', name + (state === 'hide' ? ': hidden' : ': showing only these'));
       pill.title = [pill.getAttribute('data-title'), NEXT_CLICK[state]].filter(Boolean).join('\n');
-      renderPill(pill, counts && counts.other ? counts.other[key] : undefined);
+      renderPill(pill, counts && counts.other ? counts.other[key] : undefined, 'other', key);
     });
   }
 
@@ -635,6 +646,20 @@ export function createView(handlers, version) {
       countChoices(qualityGroup, 'quality', counts && counts.quality);
       countChoices(priceGroup, 'price', counts && counts.price);
       syncPills();
+    },
+
+    /**
+     * `fn(kind, key)` says whether the venue's map shows blocks that may have more of what that pill counts as none ('seat', 'quality',
+     * 'price' or 'other' and the pill's key), or null for none: such a pill then reads "0+" and is not dimmed.
+     */
+    setMaybeMore(fn) {
+      maybeMore = typeof fn === 'function' ? fn : null;
+      if (counts) {
+        countChoices(seatGroup, 'seat', counts.seat);
+        countChoices(qualityGroup, 'quality', counts.quality);
+        countChoices(priceGroup, 'price', counts.price);
+        syncPills();
+      }
     },
 
     /** The tickets on the page, as [text on Ticketmaster, title here]: the venue panel's badge patterns say how many of them they match. */

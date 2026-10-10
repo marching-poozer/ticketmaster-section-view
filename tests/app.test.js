@@ -613,6 +613,44 @@ describe('the venue\'s seat map', () => {
     expect(last(onSections).standingOnly).toBe(false);
   });
 
+  it('points at the map when the filters leave nothing and the map shows blocks the list lacks', () => {
+    sampleCards();
+    const { onSections } = makeMapped();
+    app.start();
+    app.setMapUnlisted({ blocks: 7, mayBeStanding: 0 });
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click(); // show only resale...
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click(); // ...and only standing: no ticket is both
+    expect(last(onSections).matching).toHaveLength(0);
+    expect(q('.message').textContent).toBe('Ticketmaster\'s list returned no tickets that match the selected filters, but its map shows 7 blocks with tickets on sale that the list leaves out. They may match: please check the outlined blocks on the map.');
+    app.setMapUnlisted({ blocks: 1, mayBeStanding: 0 });
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click(); // (any change redraws)
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click();
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click();
+    expect(q('.message').textContent).toMatch(/shows 1 block with tickets on sale that the list leaves out\. It may match: please check the outlined block on the map\.$/);
+  });
+
+  it('says what it always said when the map has no such blocks', () => {
+    sampleCards();
+    makeMapped();
+    app.start();
+    app.setMapUnlisted(null);
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click();
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'standing').click();
+    expect(q('.message').textContent).toBe('No tickets match the selected filters.');
+  });
+
+  it('counts a pill that has none as "0+" while the map shows blocks the list lacks, and as 0 once it does not', () => {
+    sampleCards();
+    makeMapped();
+    app.start();
+    const vip = () => qa('.pill').find((p) => p.getAttribute('data-badge') === 'vip');
+    expect(vip().textContent).toMatch(/\(0\)$/);
+    app.setMapUnlisted({ blocks: 3, mayBeStanding: 0 });
+    expect(vip().textContent).toMatch(/\(0\+\)$/);
+    app.setMapUnlisted(null);
+    expect(vip().textContent).toMatch(/\(0\)$/);
+  });
+
   it('says the list is not ready while tickets are still loading', () => {
     addLoadedLabel(4, 84);
     addCards({ section: '101', row: 12, price: 90 });

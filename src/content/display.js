@@ -78,7 +78,10 @@ export async function initDisplay() {
       version: chrome.runtime.getManifest().version,
       onSections(state) {
         map.update(state);
-        app.setMapNote(mapNote(map.summary()));
+        const summary = map.summary();
+        // (the list is told first: it decides what to say when the filters leave nothing, and how its pills count, in the same render)
+        app.setMapUnlisted(summary ? { blocks: summary.unlisted, mayBeStanding: summary.unlistedMayBeStanding } : null);
+        app.setMapNote(mapNote(summary));
       },
       onSectionHover(name, open) { map.hover(name, open); },
       onTicketHover(ticket) { map.hoverTicket(ticket); },
