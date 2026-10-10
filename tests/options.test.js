@@ -45,6 +45,49 @@ const widthLabel = () => document.getElementById('width-label').textContent;
 const reset = () => document.getElementById('reset-width');
 
 describe('options page', () => {
+  describe('ticket quantity when a page loads', () => {
+    const select = () => document.getElementById('default-quantity');
+    const choose = (value) => {
+      select().value = String(value);
+      select().dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    it('is Ticketmaster\'s choice (0) by default, and shows what was chosen', async () => {
+      await start();
+      expect(select().value).toBe('0');
+      page.destroy();
+      page = null;
+      await start({ defaultQuantity: 4 });
+      expect(select().value).toBe('4');
+    });
+
+    it('offers 1 to 8 tickets, as Ticketmaster does, and Ticketmaster\'s own choice', async () => {
+      await start();
+      expect(Array.from(select().options).map((o) => o.value)).toEqual(['0', '1', '2', '3', '4', '5', '6', '7', '8']);
+    });
+
+    it('is saved as a number as it changes, and follows a change made elsewhere', async () => {
+      await start();
+      choose(3);
+      await flush();
+      expect(peekStorage('defaultQuantity')).toBe(3);
+      choose(0);
+      await flush();
+      expect(peekStorage('defaultQuantity')).toBe(0);
+      await saveSettings({ defaultQuantity: 6 });
+      await flush();
+      expect(select().value).toBe('6');
+    });
+
+    it('says what it does: once as the page loads, and the quantity can be changed afterwards', async () => {
+      await start();
+      const text = document.getElementById('quantity').textContent;
+      expect(text).toMatch(/goes back to 2/);
+      expect(text).toMatch(/once/);
+      expect(text).toMatch(/not put back/);
+    });
+  });
+
   describe('auto zoom map', () => {
     const box = () => document.getElementById('auto-zoom-map');
     const flip = (checked) => {
@@ -107,7 +150,12 @@ describe('options page', () => {
 
     it('says what it does', async () => {
       await start();
-      expect(document.getElementById('seatmap').textContent).toMatch(/veiled in white/);
+      const text = document.getElementById('seatmap').textContent;
+      expect(text).toMatch(/toned down/); // (it used to say the blocks were veiled in white: that is long gone)
+      expect(text).toMatch(/cross-hatched/);
+      expect(text).toMatch(/seats that don't\s+match\s+your filters are greyed/);
+      expect(text).toMatch(/outlined/);
+      expect(text).not.toMatch(/white/);
     });
   });
 

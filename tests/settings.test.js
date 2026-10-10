@@ -11,6 +11,7 @@ const DEFAULTS = {
   enabled: true,
   mapLink: true,
   autoZoomMap: true,
+  defaultQuantity: 0,
   sort: 'row',
   seatFilter: 'all',
   qualityFilter: 'any',
@@ -26,6 +27,25 @@ const DEFAULTS = {
   paneWidth: 380,
   paneOpen: false,
 };
+
+describe('defaultQuantity (how many tickets to ask for when a page loads)', () => {
+  it('is 0, leave Ticketmaster alone, unless a whole number of tickets Ticketmaster allows was chosen', () => {
+    expect(normalizeSettings({}).defaultQuantity).toBe(0);
+    [1, 2, 4, 8].forEach((n) => expect(normalizeSettings({ defaultQuantity: n }).defaultQuantity).toBe(n));
+    [0, -1, 9, 100, 2.5, '4', null, NaN, [], {}, undefined].forEach((v) => expect(normalizeSettings({ defaultQuantity: v }).defaultQuantity).toBe(0));
+  });
+
+  it('is saved under its own key', async () => {
+    await saveSettings({ defaultQuantity: 3 });
+    expect(peekStorage('defaultQuantity')).toBe(3);
+    expect((await loadSettings()).defaultQuantity).toBe(3);
+  });
+
+  it('follows a change made elsewhere (the options page, while a page is open)', () => {
+    expect(applySettingsChanges(normalizeSettings({}), { defaultQuantity: { newValue: 6 } }).defaultQuantity).toBe(6);
+    expect(applySettingsChanges(normalizeSettings({ defaultQuantity: 6 }), { defaultQuantity: { newValue: 0 } }).defaultQuantity).toBe(0);
+  });
+});
 
 describe('autoZoomMap (zooming the seat map by itself)', () => {
   it('is on unless it has been switched off, and only a real false switches it off', () => {
@@ -87,7 +107,7 @@ describe('normalizeSettings', () => {
 
   it('keeps valid values', () => {
     const customBadges = [{ id: 'aisle1', label: 'Aisle', icon: '🚶', color: 'blue', pattern: 'aisle' }];
-    const valid = { enabled: false, mapLink: false, autoZoomMap: false, sort: 'price', seatFilter: 'frontrows', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
+    const valid = { enabled: false, mapLink: false, autoZoomMap: false, defaultQuantity: 4, sort: 'price', seatFilter: 'frontrows', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
 

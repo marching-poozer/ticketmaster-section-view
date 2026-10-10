@@ -36,10 +36,12 @@
         <span>
           <strong>Link Section View to the seat map</strong>
           <small>
-            On a page with Ticketmaster's interactive seat map, the blocks your filters leave without any tickets are
-            veiled in white, so you can see where the tickets you are asking for are. Hovering a section in the list
-            outlines its block on the map; hovering a block lights up its section in the list; clicking a block opens
-            its section. Ticketmaster's own map is never changed, and venues whose map is only a picture are left alone.
+            On a page with Ticketmaster's interactive seat map, the blocks your filters leave nothing for are toned down,
+            Ticketmaster's own unavailable blocks are shown as a cross-hatched ghost, and, zoomed in, the seats that don't
+            match your filters are greyed. Blocks with seats on sale that match but are missing from Ticketmaster's list are
+            outlined. Hovering a section in the list outlines its block on the map; hovering a block lights up its section
+            in the list; clicking a block opens its section. Ticketmaster's own map is never changed, and venues whose map
+            is only a picture are left alone.
           </small>
         </span>
       </label>
@@ -58,6 +60,33 @@
             &ldquo;Show on map&rdquo; button instead. The same option is in the header of the list, on pages with a
             seat map.
           </small>
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset id="quantity">
+      <legend>Ticket quantity</legend>
+
+      <label class="choice">
+        <span>
+          <strong>Tickets to ask for when a page loads</strong>
+          <small>
+            Ticketmaster goes back to 2 tickets every time a page loads. Choose a number here and Section View presses
+            Ticketmaster's own quantity control for you, once, as the page loads, and holds off reading the ticket list
+            until it is set. After that you can change the quantity as usual: it is not put back. Leave it on
+            &ldquo;Ticketmaster's choice&rdquo; to do nothing.
+          </small>
+          <select id="default-quantity" aria-label="Tickets to ask for when a page loads">
+            <option value="0">Ticketmaster's choice (usually 2)</option>
+            <option value="1">1 ticket</option>
+            <option value="2">2 tickets</option>
+            <option value="3">3 tickets</option>
+            <option value="4">4 tickets</option>
+            <option value="5">5 tickets</option>
+            <option value="6">6 tickets</option>
+            <option value="7">7 tickets</option>
+            <option value="8">8 tickets</option>
+          </select>
         </span>
       </label>
     </fieldset>

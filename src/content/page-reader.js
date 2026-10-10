@@ -10,6 +10,7 @@ import { LOG_PREFIX } from '../lib/constants.js';
 import { apiShape, crossCheck, currencyOf, nearMisses, picksToTickets, ticketKey } from '../lib/quickpicks.js';
 import { parseTicketCard, parseTickets } from '../lib/tickets.js';
 import { createApiSource } from './api-source.js';
+import { createQuantityDefault } from './quantity-default.js';
 import * as tm from './tm-page.js';
 
 const SCROLL_INTERVAL_MS = 600;
@@ -21,6 +22,7 @@ const VIP_TRIES = 15; // up to ~3s for the VIP packages to appear once their row
 const LOAD_STEP_MS = 400;
 const VIP_WAIT_MS = 20000; // how long to wait for the list to say it has loaded before opening the VIP row anyway
 const LOAD_TRIES = 40; // up to ~16s of scrolling to bring one ticket's card into the page
+const QUANTITY_HOLD_MS = 12000; // how long reading the list waits for the ticket quantity to be set (see quantity-default.js)
 
 function sleep(ms) {
   return new Promise(function (resolve) { setTimeout(resolve, ms); });
@@ -31,9 +33,11 @@ function sleep(ms) {
  * whenever it changes. Tickets read from cards hold their `element`; tickets from the API don't (see clickTicket).
  * `source` is 'api' or 'scroll'; `fallback` says why the API isn't being used, if it was meant to be; `viaApi` is whether
  * the tickets are (or are about to be) read from it. Scrolling the cards, the reader also opens Ticketmaster's "VIP Packages" row (once per quantity / sort) so the packages are in the list. `loadMode` ('api', the default, or 'scroll') says where tickets should come from.
- * `deps.apiSource` is for tests.
+ * `defaultQuantity` (0: none) is how many tickets to ask for when the page loads (Ticketmaster starts at 2 every time): the page's own quantity
+ * control is pressed to get there, once per page, and the list is not read until it has been (see quantity-default.js).
+ * `deps.apiSource` and `deps.quantityDefault` are for tests.
  */
-export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
+export function createPageReader({ onSnapshot, loadMode: initialMode, defaultQuantity, deps }) {
   const d = deps || {};
   let running = false;
   let lastQty = null;
@@ -54,6 +58,8 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   let loadHooks = null; // { before(), after() }: the host makes the page's list loadable around a scroll-to-load
   let findingCard = false;
   const api = d.apiSource || createApiSource({ onChange: function () { scheduleSnapshot(); } });
+  const quantityDefault = d.quantityDefault || createQuantityDefault();
+  quantityDefault.setDesired(defaultQuantity);
 
   function usingApi() {
     return running && loadMode === 'api' && gaveUp === null;
@@ -218,6 +224,7 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
   /** Read the page and report it, unless nothing has changed since last time. */
   function sendSnapshot(force) {
     if (!running) return;
+    quantityDefault.tick(); // (sets the preferred ticket quantity once Ticketmaster's control is on the page)
 
     const qty = tm.getActiveQuantity();
     if (lastQty !== null && lastQty !== qty && !usingApi()) {
@@ -368,6 +375,23 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
 
   // --- lifecycle -----------------------------------------------------------
 
+  /** Run `begin` when the ticket quantity has been set (at once if no quantity is asked for), or after a while whatever happens. */
+  function whenQuantitySettled(begin) {
+    if (!quantityDefault.pending()) {
+      begin();
+      return;
+    }
+    let released = false;
+    const go = function () {
+      if (released) return;
+      released = true;
+      if (running) begin();
+    };
+    quantityDefault.whenSettled(go);
+    timers.push(setTimeout(go, QUANTITY_HOLD_MS));
+    quantityDefault.tick();
+  }
+
   function beginLoading() {
     gaveUp = null;
     verified = null;
@@ -377,9 +401,12 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     mismatchSince = 0;
     startedAt = Date.now();
     if (loadMode === 'api') {
-      api.start();
-      // If the page never asks for its list (or we never see it), carry on by scrolling.
-      timers.push(setTimeout(scheduleSnapshot, NO_REQUEST_GRACE_MS + 100));
+      // The page asks for a list at every quantity it passes through on the way to the one we want: wait for it to get there.
+      whenQuantitySettled(function () {
+        api.start();
+        // If the page never asks for its list (or we never see it), carry on by scrolling.
+        timers.push(setTimeout(scheduleSnapshot, NO_REQUEST_GRACE_MS + 100));
+      });
     } else {
       startAutoScroll();
     }
@@ -433,6 +460,11 @@ export function createPageReader({ onSnapshot, loadMode: initialMode, deps }) {
     stop,
     clickTicket,
     stepQuantity,
+    /** The quantity to ask for when a page loads (0: none); a new one is applied to the page that is open. */
+    setDefaultQuantity: function (quantity) {
+      quantityDefault.setDesired(quantity);
+      if (running) quantityDefault.tick();
+    },
     setLoadMode,
     sourceInfo,
     /** `hooks.before()` / `hooks.after()` (may return promises) bracket scrolling the page's list to bring a card in. */

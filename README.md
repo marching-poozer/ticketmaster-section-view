@@ -22,6 +22,7 @@ Above: the view in Ticketmaster's own ticket pane. The pills filter by seats, qu
 - **Your own badges.** Tag tickets whose text matches a pattern (a regular expression), globally or per venue.
 - **Per-venue row settings.** Some venues don't start at Row 1 (3Arena, Dublin: the lower tier starts at Row 21, the upper at Row 33). Tell it where each tier starts (numbers or letters) so "1st row" and "First N rows" mean the right thing. Use the 📍 button in the header, or the options page.
 - **Click a ticket to select it** on Ticketmaster's page, exactly as if you had clicked its own card.
+- **Remembers how many tickets you want.** Ticketmaster goes back to 2 tickets every time a page loads. Choose a number in the settings (**Ticket quantity**) and Section View presses Ticketmaster's own quantity control for you, once, as the page loads, and waits to read the ticket list until it is set (so nothing is read for the quantities on the way). A quantity you choose yourself afterwards is left alone.
 - Shows **in place of Ticketmaster's list** (default, with a *By Section / Tickets* switch among its filter chips) or in a **floating pane** you can drag to resize.
 
 ## The venue's seat map
@@ -67,6 +68,7 @@ Click the ⚙ in the view's header (or open the extension's options page) for:
 
 - on or off;
 - the seat map: link it to the list at all, and whether it zooms by itself (**Auto zoom map**, also in the list's header);
+- how many tickets to ask for when a page loads (Ticketmaster's own choice, or 1 to 8);
 - where to show the view (in place of Ticketmaster's list, or a floating pane and which side) and its text size (compact / match Ticketmaster / comfortable);
 - how tickets are loaded (Ticketmaster's list request, or scrolling);
 - the default number of "front" rows, your custom badges, and each saved venue's settings.

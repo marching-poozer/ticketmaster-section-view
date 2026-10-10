@@ -170,6 +170,7 @@
         "src/content/map-data-store.js",
         "src/content/api-source.js",
         "src/content/page-reader.js",
+        "src/content/quantity-default.js",
         "src/content/map.js",
         "src/content/view.js",
         "src/content/styles.js",

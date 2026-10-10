@@ -256,19 +256,35 @@ export function getActiveQuantity() {
  * dropdown first if needed. `onStepped` runs after the page has had time to
  * react. Returns false (and does nothing) when the step would leave 1–8.
  */
+/**
+ * The "2 Tickets" filter chip that opens the quantity stepper, or null. (Other chips, e.g. "All Ticket Types", also
+ * mention tickets and are expandable, so look for the count first.)
+ */
+function findQuantityChip() {
+  const buttons = Array.from(document.querySelectorAll('button'));
+  return buttons.find(function (b) { return /^\s*\d+\s*tickets?\b/i.test(b.textContent || ''); }) ||
+    buttons.find(function (b) {
+      const txt = b.textContent || '';
+      return txt.toLowerCase().includes('ticket') && (b.getAttribute('aria-expanded') !== null || /\d+\s*ticket/i.test(txt));
+    }) || null;
+}
+
+/** Is Ticketmaster's quantity control on the page yet? (getActiveQuantity says 1 when it cannot find it.) */
+export function hasQuantityControl() {
+  return findQuantityChip() !== null || document.querySelector('[role="spinbutton"]') !== null;
+}
+
+/** Close the dropdown the quantity stepper lives in, if it is open (stepping opens it and leaves it open). */
+export function closeQuantityControl() {
+  const chip = findQuantityChip();
+  if (chip && chip.getAttribute('aria-expanded') === 'true') clickElement(chip);
+}
+
 export function stepQuantity(delta, onStepped) {
   const target = getActiveQuantity() + delta;
   if (target < MIN_TICKETS || target > MAX_TICKETS) return false;
 
-  // The "2 Tickets" filter chip. (Other chips, e.g. "All Ticket Types", also
-  // mention tickets and are expandable, so look for the count first.)
-  const buttons = Array.from(document.querySelectorAll('button'));
-  const qtyFilterBtn =
-    buttons.find(function (b) { return /^\s*\d+\s*tickets?\b/i.test(b.textContent || ''); }) ||
-    buttons.find(function (b) {
-      const txt = b.textContent || '';
-      return txt.toLowerCase().includes('ticket') && (b.getAttribute('aria-expanded') !== null || /\d+\s*ticket/i.test(txt));
-    });
+  const qtyFilterBtn = findQuantityChip();
 
   function runStep() {
     const plusBtn =

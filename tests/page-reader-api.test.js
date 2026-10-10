@@ -33,7 +33,8 @@ function fakeApi(initial = {}) {
 
 function setup(api, options = {}) {
   const onSnapshot = vi.fn();
-  reader = createPageReader({ onSnapshot, deps: { apiSource: api.source }, ...options });
+  const { deps, ...rest } = options;
+  reader = createPageReader({ onSnapshot, ...rest, deps: { apiSource: api.source, ...deps } });
   return { reader, onSnapshot, last: () => onSnapshot.mock.calls[onSnapshot.mock.calls.length - 1][0] };
 }
 
@@ -163,6 +164,78 @@ describe('while the API is being read', () => {
     reader.start();
     await settle(500);
     expect(last().status.isComplete).toBe(false);
+  });
+});
+
+/** A quantity-default whose state the test controls (see quantity-default.js for the real one). */
+function fakeQuantity(pending = false) {
+  const waiting = [];
+  const qd = {
+    isPending: pending,
+    pending: () => qd.isPending,
+    tick: vi.fn(),
+    setDesired: vi.fn(),
+    whenSettled: (fn) => { if (!qd.isPending) fn(); else waiting.push(fn); },
+    done() { qd.isPending = false; waiting.splice(0).forEach((fn) => fn()); },
+  };
+  return qd;
+}
+
+describe('with a ticket quantity to ask for when the page loads', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('passes the quantity on, and looks at the page for it each time the page changes', async () => {
+    const qd = fakeQuantity();
+    const { reader } = setup(fakeApi(), { defaultQuantity: 4, deps: { quantityDefault: qd } });
+    expect(qd.setDesired).toHaveBeenCalledWith(4);
+    reader.start();
+    const ticks = qd.tick.mock.calls.length;
+    expect(ticks).toBeGreaterThan(0);
+    await poke();
+    expect(qd.tick.mock.calls.length).toBeGreaterThan(ticks);
+    reader.setDefaultQuantity(6);
+    expect(qd.setDesired).toHaveBeenLastCalledWith(6);
+  });
+
+  it('does not start reading the list until the quantity has been set: the page asks for one at each quantity on the way', () => {
+    const qd = fakeQuantity(true);
+    const api = fakeApi();
+    const { reader } = setup(api, { defaultQuantity: 4, deps: { quantityDefault: qd } });
+    reader.start();
+    expect(api.source.start).not.toHaveBeenCalled();
+    qd.done();
+    expect(api.source.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the list anyway after a while, if the quantity is not set (the page may have no control, or not move it)', async () => {
+    const qd = fakeQuantity(true);
+    const api = fakeApi();
+    const { reader } = setup(api, { defaultQuantity: 4, deps: { quantityDefault: qd } });
+    reader.start();
+    await vi.advanceTimersByTimeAsync(11000);
+    expect(api.source.start).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(api.source.start).toHaveBeenCalledTimes(1);
+    qd.done(); // (and not again when it does finish)
+    expect(api.source.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts reading at once when no quantity is asked for', () => {
+    const api = fakeApi();
+    const { reader } = setup(api, { deps: { quantityDefault: fakeQuantity(false) } });
+    reader.start();
+    expect(api.source.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start reading if it was stopped while it waited', () => {
+    const qd = fakeQuantity(true);
+    const api = fakeApi();
+    const { reader } = setup(api, { defaultQuantity: 4, deps: { quantityDefault: qd } });
+    reader.start();
+    reader.stop();
+    qd.done();
+    expect(api.source.start).not.toHaveBeenCalled();
   });
 });
 

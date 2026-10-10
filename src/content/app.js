@@ -76,6 +76,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
 
   const reader = createPageReader({
     loadMode: settings.loadMode,
+    defaultQuantity: settings.defaultQuantity,
     deps: readerDeps,
     onSnapshot(next) {
       snapshot = next;
@@ -442,6 +443,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
       this.setUiSize(next.uiSize);
       if (typeof next.autoZoomMap === 'boolean') view.setAutoZoom(next.autoZoomMap);
       if (next.loadMode) reader.setLoadMode(next.loadMode);
+      if (typeof next.defaultQuantity === 'number') reader.setDefaultQuantity(next.defaultQuantity);
       const badgesChanged = JSON.stringify(next.customBadges || []) !== JSON.stringify(globalBadges);
       if (next.frontRows !== defaultFrontRows || badgesChanged) {
         defaultFrontRows = next.frontRows;
