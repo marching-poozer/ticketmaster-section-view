@@ -7,7 +7,10 @@ import { sectionsOf } from '../src/lib/map-link.js';
 
 const o2 = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/o2-map-blocks.json'), 'utf8'));
 const real = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/quickpicks-resale-standing.json'), 'utf8'));
-const sections = sectionsOf(picksToTickets(real, { currency: '€' })); // NTHU3, STANDING-OVER 14'S ONLY, WESTU1, WESTU7
+const realSections = sectionsOf(picksToTickets(real, { currency: '€' })); // NTHU3, STANDING-OVER 14'S ONLY, WESTU1, WESTU7: all four have a block
+// ...plus one section with no block on the map: the linking is then INCOMPLETE, so a block linked to no section is left alone
+// (it may be that very section, named differently). Most of these tests are about that case; the complete one has its own tests.
+const sections = [...realSections, { name: 'UNMAPPED', tickets: [] }];
 
 let link;
 let host;
@@ -530,6 +533,193 @@ describe('the seat numbers of a ticket', () => {
   });
 });
 
+describe('diagnosing how the map and the list were matched', () => {
+  it('says, per block, what became of it', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
+    const report = link.diagnose();
+    const of = (name) => report.blocks.find((b) => b.name === name);
+    expect(report.linkingComplete).toBe(true);
+    expect(of('NORTH UPPER 3')).toMatchObject({ id: 's_8', available: true, section: 'NTHU3' });
+    expect(of('NORTH UPPER 3').state).toMatch(/^shown/);
+    expect(of('WEST UPPER 1')).toMatchObject({ section: 'WESTU1' });
+    expect(of('WEST UPPER 1').state).toMatch(/^greyed \(the section has none/);
+    expect(of('NORTH UPPER 2')).toMatchObject({ section: null });
+    expect(of('NORTH UPPER 2').state).toMatch(/^greyed \(no section of ours/);
+    expect(of('SWEST').state).toMatch(/^unavailable/);
+    expect(report.blocks).toHaveLength(o2.blocks.length);
+  });
+
+  it('says a block is left alone, and why, when the linking is incomplete', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [...realSections, { name: 'ODDLY_NAMED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    const report = link.diagnose();
+    expect(report.linkingComplete).toBe(false);
+    expect(report.blocks.find((b) => b.name === 'NORTH UPPER 2').state).toMatch(/^LEFT ALONE.*some section has no block/);
+  });
+
+  it('says so while the list is not complete', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false });
+    expect(link.diagnose().blocks.find((b) => b.name === 'NORTH UPPER 3').state).toBe('list not complete');
+  });
+
+  it('says, per section of ours, how many tickets it has and shows, its blocks, and what the API says of it', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    const tickets = picksToTickets(real, { currency: '€' });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), matching: tickets.filter((t) => t.section === 'NTHU3'), ready: true });
+    const report = link.diagnose();
+    const north = report.sections.find((s) => s.name === 'NTHU3');
+    expect(north).toMatchObject({ tickets: 1, shown: 1, blocks: ['NORTH UPPER 3'], description: 'NORTH UPPER TIER', areaName: 'NTHU' });
+    const standing = report.sections.find((s) => s.name === "STANDING-OVER 14'S ONLY");
+    expect(standing).toMatchObject({ tickets: 1, shown: 0, blocks: ['GROUND FLOOR STANDING'], blockIdOfPicture: 's_112' });
+    const west = report.sections.find((s) => s.name === 'WESTU1');
+    expect(west.shown).toBe(0);
+  });
+
+  it('says what the maps are, and the settings that matter', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.setAutoZoom(false);
+    link.update({ sections: realSections, visible: new Set(), ready: true });
+    const report = link.diagnose();
+    expect(report).toMatchObject({ enabled: true, autoZoom: false, ready: true, zoomedIn: false });
+    expect(report.maps).toHaveLength(1);
+    expect(report.maps[0]).toMatchObject({ viewBox: '0 0 10240 7680', blocks: o2.blocks.length });
+  });
+
+  it('says it all in a form that can be written down as text', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
+    expect(() => JSON.stringify(link.diagnose())).not.toThrow();
+    expect(JSON.stringify(link.diagnose()).length).toBeLessThan(40000);
+  });
+
+  it('has nothing to say about a page with no map', () => {
+    document.body.innerHTML = '<p>no map</p>';
+    link = createMapLink({ log: () => {} });
+    expect(link.diagnose()).toMatchObject({ blocks: [], maps: [] });
+  });
+});
+
+describe('labelling the blocks', () => {
+  /** jsdom has no geometry: give each block a box (as a browser does) from its place in the list. */
+  function giveBoxes() {
+    document.querySelectorAll('path[data-component="svg__section"]').forEach((p, i) => { p.getBBox = () => ({ x: i * 100, y: 50, width: 80, height: 40 }); });
+  }
+  const labels = () => Array.from(document.querySelectorAll('svg > g[data-tmsv-overlay] text')).map((t) => [t.textContent, t.getAttribute('fill')]);
+
+  it('writes the section a block is linked to on it, and ? on an available block nothing matches, and - on one the map greys', () => {
+    buildMap();
+    giveBoxes();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [...realSections, { name: 'UNMAPPED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    link.showLabels(5000);
+    const text = labels().map((l) => l[0]);
+    expect(text).toContain('NTHU3');
+    expect(text).toContain('WESTU1');
+    expect(text).toContain("STANDING-OVER 14'S ONLY");
+    expect(text).toContain('?');
+    expect(text).toContain('-');
+    expect(labels()).toHaveLength(o2.blocks.length);
+  });
+
+  it('colours them: green for a block that still shows tickets, white for a greyed one, red for the unlinked', () => {
+    buildMap();
+    giveBoxes();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [...realSections, { name: 'UNMAPPED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    link.showLabels(5000);
+    const colour = (name) => labels().find((l) => l[0] === name)[1];
+    expect(colour('NTHU3')).toBe('#00ff66');
+    expect(colour('WESTU1')).toBe('#ffffff');
+    expect(colour('?')).toBe('#ff2d2d');
+  });
+
+  it('takes them away after the time is up', () => {
+    buildMap();
+    giveBoxes();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
+    link.showLabels(2000);
+    expect(labels().length).toBeGreaterThan(0);
+    vi.advanceTimersByTime(2200);
+    expect(labels()).toEqual([]);
+  });
+
+  it('never takes the mouse, and is not drawn over the seats of a zoomed map', () => {
+    buildMap();
+    giveBoxes();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
+    link.showLabels(5000);
+    document.querySelectorAll('svg > g[data-tmsv-overlay] text').forEach((t) => expect(t.getAttribute('pointer-events')).toBe('none'));
+
+    buildZoomed();
+    link.showLabels(5000);
+    vi.advanceTimersByTime(1100);
+    expect(document.querySelectorAll('#main > g[data-tmsv-overlay] text')).toHaveLength(0);
+  });
+
+  it('copes with a browser that cannot say how big a block is (no labels, no error)', () => {
+    buildMap(); // jsdom: no getBBox
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
+    expect(() => link.showLabels(5000)).not.toThrow();
+    expect(labels()).toEqual([]);
+  });
+});
+
+describe('a block with no section of ours', () => {
+  const activeBlocks = o2.blocks.filter((b) => b.active).length;
+
+  it('is greyed too once every section of ours has found its block: it has no tickets in the list at all', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true }); // every one of the four sections has its block
+    expect(dimmed()).toHaveLength(activeBlocks - 1); // all the available blocks but NORTH UPPER 3
+    expect(dimmed()).toContain(dOf('NORTH UPPER 2')); // no section of ours called after it
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 3'));
+    expect(dimmed()).not.toContain(dOf('SWEST')); // the map greys that one itself
+    expect(link.summary().complete).toBe(true);
+  });
+
+  it('is left alone while a section of ours has no block (it may be that very section, named differently)', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [...realSections, { name: 'ODDLY_NAMED', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    expect(dimmed()).toHaveLength(3); // only the linked blocks that are out
+    expect(dimmed()).not.toContain(dOf('NORTH UPPER 2'));
+    expect(link.summary().complete).toBe(false);
+  });
+
+  it('counts in the summary, so the line in our header says how many blocks are grey', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
+    expect(link.summary().veiled).toBe(activeBlocks - 1);
+  });
+
+  it('is not greyed before the whole list has loaded, complete or not', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false });
+    expect(dimmed()).toEqual([]);
+  });
+
+  it('with no sections at all there is nothing to trust: nothing is greyed', () => {
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    link.update({ sections: [], visible: new Set(), ready: true });
+    expect(dimmed()).toEqual([]);
+  });
+});
+
 describe('the greyed blocks, and what the console is told', () => {
   it('are grey like the map\'s own unavailable blocks (they were a washed-out blue that looked like a different state)', () => {
     buildMap();
@@ -550,7 +740,8 @@ describe('the greyed blocks, and what the console is told', () => {
     expect(summary.veiled).toBe(3);
     expect(summary.unlinked).toContain('NORTH UPPER 2 [s_9]'); // available on the map, no section of ours
     expect(summary.unlinked).not.toContain('SWEST [s_111]'); // the map shows it unavailable: nothing to explain
-    expect(summary.sectionsWithoutBlock).toEqual([]);
+    expect(summary.sectionsWithoutBlock).toEqual(['UNMAPPED']);
+    expect(summary.complete).toBe(false);
   });
 
   it('says what the API calls the tier of a section with no block, to see why it did not link', () => {
@@ -574,15 +765,15 @@ describe('the greyed blocks, and what the console is told', () => {
     buildMap();
     const log = vi.fn();
     link = createMapLink({ log });
-    link.update({ sections: [...sections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    link.update({ sections: [...realSections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
     expect(log).toHaveBeenCalledTimes(1);
     const text = log.mock.calls[0][0];
     expect(text).toMatch(/^Seat map: 68 blocks, 4 linked to a section of ours, 3 greyed\./);
     expect(text).toMatch(/linked to no section of ours: WEST LOWER 8 \[s_38\]/); // the first few, with their ids
     expect(text).toContain('Sections of ours with no block: NOWHERE.');
-    link.update({ sections: [...sections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
+    link.update({ sections: [...realSections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3']), ready: true });
     expect(log).toHaveBeenCalledTimes(1); // the same again
-    link.update({ sections: [...sections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3', 'WESTU1']), ready: true });
+    link.update({ sections: [...realSections, { name: 'NOWHERE', tickets: [] }], visible: new Set(['NTHU3', 'WESTU1']), ready: true });
     expect(log).toHaveBeenCalledTimes(2); // 2 greyed now
   });
 

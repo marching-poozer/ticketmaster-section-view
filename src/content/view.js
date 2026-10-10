@@ -198,6 +198,28 @@ export function createView(handlers, version) {
   const mapNote = h('div', { class: 'map-note', hidden: true });
   const autoZoomBox = h('input', { type: 'checkbox', class: 'auto-zoom-box', on: { change: function () { autoZoom = autoZoomBox.checked; syncMapControls(); if (handlers.onAutoZoomChange) handlers.onAutoZoomChange(autoZoom); } } });
   autoZoomBox.checked = true;
+  const mapReportButton = h('button', {
+    type: 'button',
+    class: 'map-report',
+    hidden: true,
+    title: 'Copy a report of how the seat map and this list are matched (and label every block on the map with what it is linked to, for a few seconds), to send when something looks wrong.',
+    text: 'Map report',
+    on: {
+      click: function () {
+        const done = function (message) {
+          mapReportButton.textContent = message || 'Map report';
+          clearTimeout(reportTimer);
+          reportTimer = setTimeout(function () { mapReportButton.textContent = 'Map report'; }, 3000);
+        };
+        try {
+          Promise.resolve(handlers.onMapReport ? handlers.onMapReport() : '').then(done, function () { done('Failed: see the console'); });
+        } catch (err) {
+          done('Failed: see the console');
+        }
+      },
+    },
+  });
+  let reportTimer = null;
   const autoZoomLabel = h('label', { class: 'auto-zoom', hidden: true, title: 'Zoom the venue\'s seat map by itself as the mouse rests on an open section. Off, each section and ticket has a "Show on map" button instead.' }, autoZoomBox, ' Auto zoom map');
   const status = h('span', { class: 'status', text: 'Checking...' });
 
@@ -487,7 +509,7 @@ export function createView(handlers, version) {
           h('div', { class: 'title' }, h('span', { class: 'title-text', text: 'Section View' }), h('span', { class: 'version', text: 'v' + version })),
           counter,
           mapNote,
-          autoZoomLabel
+          h('div', { class: 'map-tools' }, autoZoomLabel, mapReportButton)
         ),
         h(
           'div',
@@ -529,6 +551,7 @@ export function createView(handlers, version) {
   let autoZoom = true; // ...which zooms by itself as the mouse rests on a section
   const syncMapControls = function () {
     autoZoomLabel.hidden = !mapPresent;
+    mapReportButton.hidden = !mapPresent;
     root.classList.toggle('map-buttons', mapPresent && !autoZoom);
   };
   const onSectionHover = function (name, open) { if (handlers.onSectionHover) handlers.onSectionHover(name, open === true); };

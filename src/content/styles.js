@@ -53,6 +53,10 @@ export const VIEW_CSS = `
 .counter { font-size: ${uh(11)}; color: rgba(255, 255, 255, 0.85); margin-top: ${uh(1)}; }
 .auto-zoom { display: inline-flex; align-items: center; gap: ${uh(4)}; margin-top: ${uh(3)}; font-size: ${uh(11)}; color: rgba(255, 255, 255, 0.9); cursor: pointer; user-select: none; }
 .auto-zoom[hidden] { display: none; }
+.map-tools { display: flex; align-items: center; flex-wrap: wrap; gap: ${uh(2)} ${uh(10)}; }
+.map-report { background: none; border: 0; padding: 0; margin-top: ${uh(3)}; color: rgba(255, 255, 255, 0.85); font-size: ${uh(10)}; text-decoration: underline; cursor: pointer; }
+.map-report[hidden] { display: none; }
+.map-report:hover { color: #ffffff; }
 .auto-zoom-box { margin: 0; accent-color: #ffb300; cursor: pointer; }
 .show-on-map { display: none; flex: none; background: #ffffff; color: var(--blue); border: 1px solid var(--border); border-radius: ${u(10)}; padding: ${u(2)} ${u(8)}; font-size: ${u(10)}; font-weight: 700; cursor: pointer; white-space: nowrap; }
 .show-on-map:hover { background: #eef4ff; border-color: var(--blue); }

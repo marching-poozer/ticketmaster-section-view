@@ -147,15 +147,26 @@ export function sectionsOf(tickets) {
 }
 
 /**
+ * Has every section found its block? Then the linking can be trusted: a block that is left with no section has no tickets
+ * in the list at all. (With a section that has no block, a block with no section may be that very section, named differently.)
+ */
+export function linkingComplete(links, sections) {
+  const linked = new Set(links.blockToSection.values());
+  return sections.length > 0 && sections.every(function (s) { return linked.has(s.name); });
+}
+
+/**
  * Which blocks to dim: those the map says are available (`active`) whose section has no ticket left after the filters.
- * Blocks with no section (the map and the list name things differently) are never dimmed: not knowing is not "empty".
+ * Blocks with no section (the map and the list name things differently) are not dimmed: not knowing is not "empty" —
+ * unless `greyUnlinked` (the linking is complete, see linkingComplete): then a block with no section has no tickets at all.
  * `visible`: the names of the sections that still show tickets.
  */
-export function blocksToDim(blocks, links, visible) {
+export function blocksToDim(blocks, links, visible, greyUnlinked) {
   const dim = [];
   blocks.forEach(function (block, index) {
+    if (block.active === false) return;
     const section = links.blockToSection.get(index);
-    if (section !== undefined && block.active !== false && !visible.has(section)) dim.push(index);
+    if (section === undefined ? greyUnlinked === true : !visible.has(section)) dim.push(index);
   });
   return dim;
 }

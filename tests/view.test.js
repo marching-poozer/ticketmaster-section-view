@@ -20,6 +20,7 @@ function makeHandlers() {
     onShowSection: vi.fn(),
     onShowTicket: vi.fn(),
     onAutoZoomChange: vi.fn(),
+    onMapReport: vi.fn(() => 'Copied ✓'),
   };
 }
 
@@ -1102,6 +1103,52 @@ describe('createView', () => {
       expect(handlers.onAutoZoomChange).toHaveBeenLastCalledWith(false);
       view.setAutoZoom(true);
       expect(q('.auto-zoom-box').checked).toBe(true);
+    });
+
+    it('has a "Map report" button, only on a page with a map', () => {
+      const { view, q } = make();
+      expect(q('.map-report').hidden).toBe(true);
+      view.setMapAvailable(true);
+      expect(q('.map-report').hidden).toBe(false);
+      expect(q('.map-report').textContent).toBe('Map report');
+      view.setMapAvailable(false);
+      expect(q('.map-report').hidden).toBe(true);
+    });
+
+    it('asks the host for the report when pressed, says what came of it, and goes back to its label', async () => {
+      vi.useFakeTimers();
+      const { view, handlers, q } = make();
+      view.setMapAvailable(true);
+      q('.map-report').click();
+      expect(handlers.onMapReport).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(q('.map-report').textContent).toBe('Copied ✓');
+      await vi.advanceTimersByTimeAsync(3100);
+      expect(q('.map-report').textContent).toBe('Map report');
+    });
+
+    it('says so when the report could not be made, instead of doing nothing', async () => {
+      vi.useFakeTimers();
+      const { view, handlers, q } = make();
+      handlers.onMapReport = vi.fn(() => Promise.reject(new Error('no')));
+      view.setMapAvailable(true);
+      q('.map-report').click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(q('.map-report').textContent).toMatch(/^Failed/);
+      handlers.onMapReport = vi.fn(() => { throw new Error('boom'); });
+      q('.map-report').click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(q('.map-report').textContent).toMatch(/^Failed/);
+    });
+
+    it('copes with a host that has no report to give', async () => {
+      vi.useFakeTimers();
+      const { view, handlers, q } = make();
+      delete handlers.onMapReport;
+      view.setMapAvailable(true);
+      expect(() => q('.map-report').click()).not.toThrow();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(q('.map-report').textContent).toBe('Map report');
     });
 
     it('has the "Show on map" buttons only with a map and with auto zoom off', () => {

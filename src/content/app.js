@@ -18,9 +18,10 @@ import { createView } from './view.js';
 /**
  * `onSections({ sections, visible, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
  * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it;
+ * `onMapReport()` -> a short message: the "Map report" button was pressed (see display.js);
  * `onTicketHover(ticket | null)` likewise for a ticket; `onShowSection(name)` / `onShowTicket(ticket)`: its "Show on map" button was pressed.
  */
-export function createApp({ settings, version, readerDeps, onSections, onSectionHover, onTicketHover, onShowSection, onShowTicket }) {
+export function createApp({ settings, version, readerDeps, onSections, onSectionHover, onTicketHover, onShowSection, onShowTicket, onMapReport }) {
   // Behaviour that depends on where the view is hosted; see configure().
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
@@ -43,6 +44,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     search: '',
   };
   let snapshot = null;
+  let shownCount = 0; // how many tickets the filters left at the last render
 
   const reader = createPageReader({
     loadMode: settings.loadMode,
@@ -112,6 +114,9 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
       },
       onShowTicket(ticket) {
         if (onShowTicket) onShowTicket(ticket);
+      },
+      onMapReport() {
+        return onMapReport ? onMapReport() : '';
       },
       onAutoZoomChange(on) {
         saveSettings({ autoZoomMap: on });
@@ -272,6 +277,7 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
       });
     }
     const shown = result.groups.reduce(function (n, g) { return n + g.tickets.length; }, 0);
+    shownCount = shown;
     view.renderCounter(snapshot.tickets.length, snapshot.qty, snapshot.tickets.length - shown);
     if (result.empty === 'no-sections') view.renderMessage('No matching blocks found.');
     else if (result.empty === 'no-matches') view.renderMessage('No tickets match the selected filters.');
@@ -288,6 +294,30 @@ export function createApp({ settings, version, readerDeps, onSections, onSection
     /** The venue's map: the mouse is over (or has left) a block of this section. */
     highlightSection(name) {
       view.highlightSection(name);
+    },
+
+    /** What a bug report about the list needs to know: the filters, the counts, where the tickets came from. */
+    diagnose() {
+      return {
+        version,
+        page: typeof location !== 'undefined' ? location.pathname : '',
+        venue,
+        source: snapshot ? (snapshot.viaApi ? 'api' : 'scroll') : null,
+        filters: {
+          seat: state.seat,
+          quality: state.quality,
+          price: state.price,
+          showOnly: Array.from(state.badgeFilters),
+          hide: Array.from(state.hideFilters),
+          search: state.search,
+        },
+        tickets: {
+          all: snapshot ? snapshot.tickets.length : 0,
+          shown: shownCount,
+          loaded: snapshot ? snapshot.status : null,
+          quantity: snapshot ? snapshot.qty : null,
+        },
+      };
     },
 
     /** Whether the page has an interactive seat map (the header then offers "Auto zoom map"). */

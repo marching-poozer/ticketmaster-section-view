@@ -399,18 +399,20 @@ describe('the venue\'s seat map on the page', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   };
 
-  it('veils the blocks our filters leave empty, and nothing else', async () => {
+  it('veils the blocks our filters leave empty, and the blocks with no tickets at all, and nothing else', async () => {
     pageWithMap();
     await start({ loadMode: 'scroll' });
     await settle(1200);
-    expect(veiled()).toEqual([]); // every section has tickets
+    // every section of ours has its block, so the linking is complete: BLOCKZ, which the map shows as available but no section
+    // of ours is called after, has no tickets in the list and is greyed from the start. BLOCKY is greyed by the map itself.
+    expect(veiled()).toEqual([block('BLOCKZ').getAttribute('d')]);
 
     search('BLOCKA'); // only BLOCKA is left in our list
     await settle(1200);
-    expect(veiled()).toEqual([block('BLOCKG').getAttribute('d')]); // BLOCKZ has no section of ours; BLOCKY is greyed by the map itself
+    expect(veiled().sort()).toEqual([block('BLOCKG').getAttribute('d'), block('BLOCKZ').getAttribute('d')].sort());
     search('');
     await settle(1200);
-    expect(veiled()).toEqual([]);
+    expect(veiled()).toEqual([block('BLOCKZ').getAttribute('d')]);
   });
 
   it('says in our header what the grey blocks mean, while there are any', async () => {
@@ -418,15 +420,15 @@ describe('the venue\'s seat map on the page', () => {
     await start({ loadMode: 'scroll' });
     await settle(1200);
     const note = () => inlineHost().shadowRoot.querySelector('.map-note');
-    expect(note().hidden).toBe(true); // nothing is greyed
+    expect(note().textContent).toBe('Seat map: 1 block greyed: no tickets there with the current filters.'); // BLOCKZ: no tickets at all
 
     search('BLOCKA');
     await settle(1200);
     expect(note().hidden).toBe(false);
-    expect(note().textContent).toBe('Seat map: 1 block greyed, with no tickets matching your filters.');
+    expect(note().textContent).toBe('Seat map: 2 blocks greyed: no tickets there with the current filters.');
     search('');
     await settle(1200);
-    expect(note().hidden).toBe(true);
+    expect(note().textContent).toBe('Seat map: 1 block greyed: no tickets there with the current filters.');
   });
 
   it('outlines the block of a closed section the mouse is on in the list, and sends the map the hover for its tooltip', async () => {
@@ -477,14 +479,14 @@ describe('the venue\'s seat map on the page', () => {
     await settle(1200);
     search('BLOCKA');
     await settle(1200);
-    expect(veiled()).toHaveLength(1);
+    expect(veiled()).toHaveLength(2);
     await saveSettings({ mapLink: false });
     await flush();
     expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
     await saveSettings({ mapLink: true });
     await flush();
     await settle(1200);
-    expect(veiled()).toHaveLength(1);
+    expect(veiled()).toHaveLength(2);
   });
 
   it('takes its overlay off the map when Section View is switched off or destroyed', async () => {
@@ -503,6 +505,70 @@ describe('the venue\'s seat map on the page', () => {
     expect(overlay()).not.toBeNull();
     display.destroy();
     expect(document.querySelector('[data-tmsv-overlay]')).toBeNull();
+  });
+
+  describe('the Map report button', () => {
+    const shadow = () => inlineHost().shadowRoot;
+    const button = () => shadow().querySelector('.map-report');
+    const labels = () => Array.from(document.querySelectorAll('svg > g[data-tmsv-overlay] text')).map((t) => t.textContent);
+    let written;
+
+    beforeEach(() => {
+      written = [];
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async (t) => { written.push(t); }) } });
+      vi.spyOn(console, 'log').mockImplementation(() => {});
+      // jsdom has no geometry: give the blocks a box, as a browser does
+      Object.defineProperty(SVGElement.prototype, 'getBBox', { configurable: true, value: function () { return { x: 1, y: 1, width: 10, height: 10 }; } });
+    });
+
+    afterEach(() => {
+      delete SVGElement.prototype.getBBox;
+      delete navigator.clipboard;
+    });
+
+    it('copies a report of how the list and the map were matched, and says so', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll' });
+      await settle(1200);
+      search('BLOCKA');
+      await settle(1200);
+      button().click();
+      await settle(50);
+      expect(written).toHaveLength(1);
+      const report = JSON.parse(written[0]);
+      expect(report.filters.search).toBe('blocka'); // as the app keeps it
+      expect(report.tickets).toMatchObject({ shown: 1 });
+      expect(report.map.linkingComplete).toBe(true);
+      expect(report.map.blocks.find((b) => b.name === 'BLOCKG')).toMatchObject({ section: 'BLOCKG' });
+      expect(report.map.blocks.find((b) => b.name === 'BLOCKG').state).toMatch(/^greyed/);
+      expect(report.map.sections.map((s) => s.name).sort()).toEqual(['BLOCKA', 'BLOCKG']);
+      expect(button().textContent).toMatch(/^Copied/);
+    });
+
+    it('also prints it in the console, for a browser that will not let it be copied', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll' });
+      await settle(1200);
+      navigator.clipboard.writeText = vi.fn(async () => { throw new Error('denied'); });
+      button().click();
+      await settle(50);
+      expect(console.log.mock.calls.some((c) => /Map report:/.test(String(c[0])))).toBe(true);
+      expect(button().textContent).toMatch(/^In the console/);
+    });
+
+    it('labels the blocks on the map for a while, then takes the labels away', async () => {
+      pageWithMap();
+      await start({ loadMode: 'scroll' });
+      await settle(1200);
+      expect(labels()).toEqual([]);
+      button().click();
+      await settle(50);
+      expect(labels()).toContain('BLOCKG');
+      expect(labels()).toContain('?'); // BLOCKZ: available on the map, no section of ours
+      expect(labels()).toContain('-'); // BLOCKY: the map greys it itself
+      await settle(15500);
+      expect(labels()).toEqual([]);
+    });
   });
 
   describe('Auto zoom map, and the Show on map buttons', () => {

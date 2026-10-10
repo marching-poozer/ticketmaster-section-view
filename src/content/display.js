@@ -10,6 +10,7 @@
 // All of it can be switched off (the `enabled` setting: the menu of the toolbar icon,
 // or the options page). Off, nothing is built and nothing on the page is touched; switching
 // off while it is showing takes everything away again and leaves Ticketmaster's list as it was.
+import { LOG_PREFIX } from '../lib/constants.js';
 import { MSG } from '../lib/protocol.js';
 import { applySettingsChanges, loadSettings } from '../lib/settings.js';
 import { createApp } from './app.js';
@@ -17,10 +18,30 @@ import { createInline } from './inline.js';
 import { createMapLink } from './map.js';
 import { createPane } from './pane.js';
 
+const LABEL_MS = 15000;
+
+/**
+ * The "Map report" button: gather how the list and the seat map were matched, copy it as text (and print it in the console),
+ * and label every block on the map with what it is linked to for a while, so a screenshot shows what is wrong. Resolves to
+ * what the button should say.
+ */
+async function reportOnMap(app, map) {
+  const report = Object.assign(app.diagnose(), { map: map.diagnose() });
+  const text = JSON.stringify(report, null, 1);
+  console.log(LOG_PREFIX + 'Map report:\n' + text);
+  map.showLabels(LABEL_MS);
+  try {
+    await navigator.clipboard.writeText(text);
+    return 'Copied ✓ (and blocks labelled)';
+  } catch (err) {
+    return 'In the console (and blocks labelled)';
+  }
+}
+
 /** What the grey blocks on the venue's map mean, for the line under our counter (nothing when none are grey). */
 function mapNote(summary) {
   if (!summary || summary.veiled === 0) return null;
-  return 'Seat map: ' + summary.veiled + ' block' + (summary.veiled === 1 ? '' : 's') + ' greyed, with no tickets matching your filters.';
+  return 'Seat map: ' + summary.veiled + ' block' + (summary.veiled === 1 ? '' : 's') + ' greyed: no tickets there with the current filters.';
 }
 
 /** Start Section View on this page. Resolves to a handle with destroy() (used by tests). */
@@ -53,6 +74,7 @@ export async function initDisplay() {
       onTicketHover(ticket) { map.hoverTicket(ticket); },
       onShowSection(name) { map.showSection(name); },
       onShowTicket(ticket) { map.showTicket(ticket); },
+      onMapReport() { return reportOnMap(app, map); },
     });
     app.setMapAvailable(map.present());
     const pane = createPane(app, settings, { active: false });

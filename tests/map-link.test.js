@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { abbreviates, blockKeys, blocksToDim, keyOf, linkBlocks, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
+import { abbreviates, blockKeys, blocksToDim, keyOf, linkBlocks, linkingComplete, sectionKeys, sectionsOf } from '../src/lib/map-link.js';
 import { picksToTickets, segmentIdOf } from '../src/lib/quickpicks.js';
 
 const o2 = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/o2-map-blocks.json'), 'utf8'));
@@ -266,5 +266,36 @@ describe('which blocks to dim', () => {
 
   it('does not touch what the map already shows as unavailable, or what it could not link', () => {
     expect(blocksToDim(blocks, links, new Set())).toEqual([0, 1]); // C is already grey; D is not linked: not knowing is not "empty"
+  });
+
+  it('dims what it could not link too, when told the linking is complete (such a block has no tickets at all)', () => {
+    expect(blocksToDim(blocks, links, new Set(['A']), true)).toEqual([1, 3]);
+    expect(blocksToDim(blocks, links, new Set(['A']), false)).toEqual([1]);
+    expect(blocksToDim(blocks, links, new Set(['A']))).toEqual([1]);
+  });
+
+  it('still leaves what the map shows as unavailable alone, complete or not', () => {
+    expect(blocksToDim([{ id: 'x', name: 'X', active: false }], { blockToSection: new Map(), sectionToBlocks: new Map() }, new Set(), true)).toEqual([]);
+  });
+});
+
+describe('whether the linking is complete', () => {
+  const links = { blockToSection: new Map([[0, 'A'], [1, 'B']]), sectionToBlocks: new Map() };
+
+  it('is when every section has found its block', () => {
+    expect(linkingComplete(links, [{ name: 'A' }, { name: 'B' }])).toBe(true);
+  });
+
+  it('is not while a section has none', () => {
+    expect(linkingComplete(links, [{ name: 'A' }, { name: 'B' }, { name: 'C' }])).toBe(false);
+  });
+
+  it('is not with no sections: nothing to trust', () => {
+    expect(linkingComplete(links, [])).toBe(false);
+  });
+
+  it('counts a section with several blocks once', () => {
+    const several = { blockToSection: new Map([[0, 'A'], [1, 'A']]), sectionToBlocks: new Map() };
+    expect(linkingComplete(several, [{ name: 'A' }])).toBe(true);
   });
 });

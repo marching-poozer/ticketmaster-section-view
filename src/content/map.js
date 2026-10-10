@@ -25,7 +25,7 @@
 //
 // None of it is needed: with no map on the page (or one built differently) this does nothing.
 import { LOG_PREFIX } from '../lib/constants.js';
-import { blocksToDim, keyOf, linkBlocks } from '../lib/map-link.js';
+import { blocksToDim, keyOf, linkBlocks, linkingComplete } from '../lib/map-link.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLOCK_SELECTOR = 'path[data-component="svg__section"]';
@@ -72,7 +72,7 @@ function keyOfSeatCircle(circle) {
  * `options.log(message)` hears what it works out (default: the console). `options.document` is for tests.
  * `options.onSeatHover(ticket | null)`, `options.onSeatClick(ticket)`: the mouse is on a seat of the zoomed map, whose ticket is still in our list.
  * `options.onPresence(bool)` hears when the page gains or loses an interactive map.
- * Returns { update, summary, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
+ * Returns { update, summary, diagnose, showLabels, present, setAutoZoom, showSection, showTicket, highlight, hover, hoverTicket, setEnabled, destroy }.
  */
 export function createMapLink(options) {
   const opts = options || {};
@@ -101,6 +101,9 @@ export function createMapLink(options) {
   let openedByUs = null; // the section we opened the map at (until the map is zoomed out again)
   let redraws = [];
   let lastLogged = '';
+  let labelsUntil = 0; // until when the blocks are labelled with what they are linked to (a diagnostic)
+  let labelTimer = null;
+  let matchingCount = new Map(); // section name -> how many of its tickets the filters leave
 
   // --- finding the map(s) ---------------------------------------------------------
 
@@ -204,11 +207,12 @@ export function createMapLink(options) {
   function draw(binding) {
     const zoomed = showsSeats(binding);
     // Over the seats of a zoomed map the block outlines are not the point: the seats are.
-    const dim = enabled && ready && !zoomed ? blocksToDim(current(binding), binding.links, visible) : [];
+    const dim = enabled && ready && !zoomed ? blocksToDim(current(binding), binding.links, visible, linkingComplete(binding.links, sections)) : [];
     const outline = enabled && !zoomed && highlighted !== null ? binding.links.sectionToBlocks.get(highlighted) || [] : [];
     const rings = enabled && zoomed ? seatsToRing(binding) : [];
     const greySeats = enabled && ready && zoomed ? seatsToGrey(binding) : [];
-    const signature = JSON.stringify([dim, outline, binding.blocks.length, rings, greySeats]);
+    const labelled = enabled && !zoomed && Date.now() < labelsUntil;
+    const signature = JSON.stringify([dim, outline, binding.blocks.length, rings, greySeats, labelled]);
     if (binding.overlay && binding.overlay.isConnected && signature === binding.drawn) return;
     binding.drawn = signature;
 
@@ -245,7 +249,45 @@ export function createMapLink(options) {
       ring.setAttribute('pointer-events', 'none');
       return ring;
     }));
-    binding.overlay.replaceChildren.apply(binding.overlay, shapes);
+    binding.overlay.replaceChildren.apply(binding.overlay, shapes.concat(labelled ? labelShapes(binding, dim) : []));
+  }
+
+  /**
+   * A diagnostic: every block labelled with what it is linked to, over the block: the section's name (white on green when it
+   * still shows tickets, on dark grey when greyed), "?" in red for a block the map shows as available that no section of ours
+   * matches, "-" for one the map itself shows as unavailable. Text needs the block's box, which only a browser can give.
+   */
+  function labelShapes(binding, dim) {
+    const out = [];
+    const viewBox = (binding.svg.getAttribute('viewBox') || '0 0 10240 7680').split(/[ ,]+/).map(Number);
+    const size = Math.max(40, Math.round((viewBox[2] || 10240) / 95));
+    const greyed = new Set(dim);
+    binding.blocks.forEach(function (block, index) {
+      let box;
+      try {
+        box = block.el.getBBox();
+      } catch (err) {
+        return;
+      }
+      if (!box || !(box.width > 0)) return;
+      const section = binding.links.blockToSection.get(index);
+      const active = block.el.getAttribute('data-active') !== 'false';
+      const label = doc.createElementNS(SVG_NS, 'text');
+      label.textContent = section !== undefined ? section : active ? '?' : '-';
+      label.setAttribute('x', String(box.x + box.width / 2));
+      label.setAttribute('y', String(box.y + box.height / 2 + size / 3));
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('font-size', String(size));
+      label.setAttribute('font-family', 'monospace');
+      label.setAttribute('font-weight', '700');
+      label.setAttribute('fill', section === undefined ? (active ? '#ff2d2d' : '#555555') : greyed.has(index) ? '#ffffff' : '#00ff66');
+      label.setAttribute('stroke', section === undefined && active ? '#ffffff' : '#000000');
+      label.setAttribute('stroke-width', String(Math.round(size / 9)));
+      label.setAttribute('paint-order', 'stroke');
+      label.setAttribute('pointer-events', 'none');
+      out.push(label);
+    });
+    return out;
   }
 
   function drawAll() {
@@ -273,12 +315,14 @@ export function createMapLink(options) {
     const map = overview();
     if (!map || !map.blocks.length) return null;
     const blocks = current(map);
-    const veiled = ready ? blocksToDim(blocks, map.links, visible).length : 0;
+    const complete = linkingComplete(map.links, sections);
+    const veiled = ready ? blocksToDim(blocks, map.links, visible, complete).length : 0;
     const unlinked = blocks.filter(function (b, i) { return b.active && !map.links.blockToSection.has(i); }).map(function (b) { return b.name + (b.id ? ' [' + b.id + ']' : ''); });
     const linkedSections = new Set(map.links.blockToSection.values());
     return {
       blocks: blocks.length,
       linked: map.links.blockToSection.size,
+      complete, // every section of ours has its block: a block with no section then has no tickets, and is greyed
       veiled,
       unlinked,
       sectionsWithoutBlock: sections.filter(function (s) { return !linkedSections.has(s.name); }).map(function (s) {
@@ -550,6 +594,8 @@ export function createMapLink(options) {
       allSeats = new Set();
       sections.forEach(function (s) { s.tickets.forEach(function (t) { if (t.rowName) seatsOf(t).forEach(function (n) { allSeats.add(seatKey(t.section, t.rowName, n)); }); }); });
       shownSeats = new Map();
+      matchingCount = new Map();
+      (state.matching || []).forEach(function (t) { matchingCount.set(t.section, (matchingCount.get(t.section) || 0) + 1); });
       (state.matching || []).forEach(function (t) { if (t.rowName) seatsOf(t).forEach(function (n) { shownSeats.set(seatKey(t.section, t.rowName, n), t); }); });
       bindings.forEach(relink);
       drawAll();
@@ -558,6 +604,54 @@ export function createMapLink(options) {
 
     /** What it has linked: see summary() above. */
     summary,
+
+    /**
+     * Everything about how the map and the list were matched, as plain data: for a bug report. Per map: its size, how many blocks
+     * and seats; per block: its name, id, whether the map shows it as available, the section of ours it is linked to, and what
+     * becomes of it (shown / greyed / unlinked / unavailable); per section of ours: its tickets, those the filters leave, the
+     * blocks it is linked to and what the API says about it (its tier, the block id its picture names).
+     */
+    diagnose() {
+      refresh();
+      const main = overview();
+      const complete = main ? linkingComplete(main.links, sections) : false;
+      const shownOf = function (name) { return visible.has(name); };
+      const blocks = main ? current(main).map(function (b, i) {
+        const section = main.links.blockToSection.get(i);
+        let state;
+        if (!b.active) state = 'unavailable (the map greys it)';
+        else if (!ready) state = 'list not complete';
+        else if (section === undefined) state = complete ? 'greyed (no section of ours: none has tickets there)' : 'LEFT ALONE (no section of ours, and some section has no block)';
+        else state = shownOf(section) ? 'shown (the section has tickets after the filters)' : 'greyed (the section has none after the filters)';
+        return { name: b.name, id: b.id, available: b.active, section: section === undefined ? null : section, state };
+      }) : [];
+      return {
+        enabled,
+        autoZoom,
+        ready,
+        zoomedIn: isZoomed(),
+        linkingComplete: complete,
+        maps: bindings.map(function (b) {
+          const box = b.svg.getBoundingClientRect();
+          return { size: Math.round(box.width) + 'x' + Math.round(box.height), viewBox: b.svg.getAttribute('viewBox'), blocks: b.blocks.length, seatsDrawn: b.svg.querySelectorAll('g.seats circle').length };
+        }),
+        seats: { ofOurTickets: allSeats.size, ofTicketsShown: shownSeats.size },
+        blocks,
+        sections: sections.map(function (s) {
+          const linked = main ? (main.links.sectionToBlocks.get(s.name) || []).map(function (i) { return main.blocks[i].name; }) : [];
+          const first = s.tickets[0] || {};
+          return { name: s.name, tickets: s.tickets.length, shown: matchingCount.get(s.name) || 0, blocks: linked, description: first.description || '', areaName: first.areaName || '', blockIdOfPicture: first.segmentId || '' };
+        }),
+      };
+    },
+
+    /** Label every block of the overview with what it is linked to, for `ms` (see labelShapes). */
+    showLabels(ms) {
+      labelsUntil = Date.now() + ms;
+      drawAll();
+      clearTimeout(labelTimer);
+      labelTimer = setTimeout(drawAll, ms + 50);
+    },
 
     /** Outline the block(s) of a section (or none, with null). */
     highlight(name) {
@@ -637,6 +731,7 @@ export function createMapLink(options) {
 
     destroy() {
       cancelIntent();
+      clearTimeout(labelTimer);
       redraws.forEach(clearTimeout);
       redraws = [];
       stopPreview();

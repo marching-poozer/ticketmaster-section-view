@@ -675,6 +675,20 @@ describe('the venue\'s seat map', () => {
     expect(state.sections.reduce((n, s) => n + s.tickets.length, 0)).toBe(4); // all of them, still
   });
 
+  it('can say how it is set up and what it holds, for a bug report', () => {
+    sampleCards();
+    makeMapped();
+    app.start();
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click();
+    const report = app.diagnose();
+    expect(report.version).toBe('1.2.3');
+    expect(report.source).toBe('scroll');
+    expect(report.filters).toMatchObject({ seat: 'all', quality: 'any', price: 'any', showOnly: ['resale'], hide: [], search: '' });
+    expect(report.tickets).toMatchObject({ all: 4, shown: 1, quantity: 1 });
+    expect(report.tickets.loaded).toMatchObject({ loaded: 4, total: 4, isComplete: true });
+    expect(() => JSON.stringify(report)).not.toThrow();
+  });
+
   it('has "Auto zoom map" only when told the page has a map, as the settings say', () => {
     sampleCards();
     make({ autoZoomMap: false });
