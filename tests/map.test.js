@@ -28,9 +28,12 @@ function buildMap() {
 const block = (name, id) => host.querySelector(`path[data-section-name="${name}"]${id ? `[data-section-id="${id}"]` : ''}`);
 const overlay = () => host.querySelector('svg > g[data-tmsv-overlay]');
 // the blocks we mark as having no tickets (tiers 2 and 3: filtered out, or none at all), and, apart, the map's own unavailable ones we fade to match
-const dimmed = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).map((p) => p.getAttribute('d'));
-const tier = (name) => Array.from(overlay().querySelectorAll(`path[data-tmsv-tier="${name}"]`)).map((p) => p.getAttribute('d'));
-const styleOf = (el) => ['fill', 'fill-opacity', 'style'].map((a) => el.getAttribute(a)).join('|');
+// (each block is drawn in a few layers, one path each: the first stands for the block)
+const FIRST = '[data-tmsv-layer="0"]';
+const dimmed = () => Array.from(overlay().querySelectorAll(`path[data-tmsv-tier="filtered"]${FIRST}, path[data-tmsv-tier="empty"]${FIRST}`)).map((p) => p.getAttribute('d'));
+const tier = (name) => Array.from(overlay().querySelectorAll(`path[data-tmsv-tier="${name}"]${FIRST}`)).map((p) => p.getAttribute('d'));
+const layersOf = (name, d) => Array.from(overlay().querySelectorAll(`path[data-tmsv-tier="${name}"]`)).filter((p) => p.getAttribute('d') === d).map((p) => ({ layer: p.getAttribute('data-tmsv-layer'), fill: p.getAttribute('fill'), opacity: p.getAttribute('fill-opacity'), style: p.getAttribute('style') }));
+const styleOf = (el) => ['fill', 'fill-opacity', 'style', 'data-tmsv-layer'].map((a) => el.getAttribute(a)).join('|');
 const outlined = () => Array.from(overlay().querySelectorAll('path[stroke]')).map((p) => p.getAttribute('d'));
 const dOf = (name, id) => block(name, id).getAttribute('d');
 
@@ -101,7 +104,7 @@ describe('dimming the blocks our filters leave empty', () => {
     link = createMapLink({ log: () => {} });
     link.update({ sections, visible: new Set(['NTHU3']), ready: false }); // still loading
     expect(dimmed().length).toBeGreaterThan(0);
-    const styles = () => Object.fromEntries(Array.from(overlay().querySelectorAll('path[data-tmsv-tier]')).map((p) => [p.getAttribute('data-tmsv-tier'), styleOf(p)]));
+    const styles = () => Object.fromEntries(Array.from(overlay().querySelectorAll('path[data-tmsv-tier]')).map((p) => [p.getAttribute('data-tmsv-tier') + '/' + p.getAttribute('data-tmsv-layer'), styleOf(p)]));
     const during = styles();
     link.update({ sections, visible: new Set(['NTHU3']), ready: true });
     expect(dimmed().length).toBe(3);
@@ -479,7 +482,7 @@ describe('hovering a section in our list: what the map is made to do', () => {
     show('NTHU3');
     const overlays = document.querySelectorAll('svg > g[data-tmsv-overlay]');
     expect(overlays).toHaveLength(2);
-    overlays.forEach((o) => expect(o.querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).toHaveLength(3));
+    overlays.forEach((o) => expect(o.querySelectorAll('path[data-tmsv-tier="filtered"][data-tmsv-layer="0"], path[data-tmsv-tier="empty"][data-tmsv-layer="0"]')).toHaveLength(3));
   });
 
   it('does nothing for a section no block is linked to, and nothing when switched off', () => {
@@ -750,7 +753,7 @@ describe('a block with no section of ours', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false });
-    const styles = () => Object.fromEntries(Array.from(overlay().querySelectorAll('path[data-tmsv-tier]')).map((p) => [p.getAttribute('data-tmsv-tier'), styleOf(p)]));
+    const styles = () => Object.fromEntries(Array.from(overlay().querySelectorAll('path[data-tmsv-tier]')).map((p) => [p.getAttribute('data-tmsv-tier') + '/' + p.getAttribute('data-tmsv-layer'), styleOf(p)]));
     const during = styles();
     expect(Object.keys(during).length).toBeGreaterThan(0);
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true });
@@ -773,33 +776,68 @@ describe('the greyed blocks, and what the console is told', () => {
   const brightness = (hex) => rgb(hex).reduce((a, b) => a + b, 0) / 3;
   const first = (name) => overlay().querySelector(`path[data-tmsv-tier="${name}"]`);
 
-  it('has three tiers, so what has tickets is the most present, then what the filters hide, then what has no tickets at all', () => {
+  it('has three levels: what has tickets that show is untouched, what the filters hide is softer blue, what has no tickets is a hatched ghost', () => {
     buildMap();
     block('WEST UPPER 1').setAttribute('data-active', 'false'); // the map's own unavailable block
     link = createMapLink({ log: () => {} });
     show('NTHU3');
-    expect(tier('filtered').length).toBeGreaterThan(0);
-    expect(tier('inactive')).toContain(dOf('WEST UPPER 1'));
-    // tier 2 keeps the block's colour and brightness and takes most of its saturation (a blend), where the rest are flat and pale
-    const filtered = first('filtered');
-    expect(filtered.getAttribute('style')).toBe('mix-blend-mode:saturation');
-    expect(neutral(filtered.getAttribute('fill'))).toBe(true);
-    // tier 3, the map's own unavailable block faded to match, is neutral and paler than the toned-down block was (it was the other way round)
-    const inactive = first('inactive');
-    expect(neutral(inactive.getAttribute('fill'))).toBe(true);
-    expect(brightness(inactive.getAttribute('fill'))).toBeGreaterThan(brightness(filtered.getAttribute('fill')));
-    expect(Number(inactive.getAttribute('fill-opacity'))).toBeLessThan(Number(filtered.getAttribute('fill-opacity')));
+    const filtered = tier('filtered')[0];
+    expect(filtered).toBeDefined();
+    // softer blue: the colour half drained and lightened by blends, which leave the white labels (in the picture under the map's shapes) as crisp as they were
+    expect(layersOf('filtered', filtered).map((l) => l.style)).toEqual(['mix-blend-mode:saturation', 'mix-blend-mode:screen']);
+    expect(layersOf('filtered', filtered).every((l) => neutral(l.fill))).toBe(true);
+    // ghost: a pale neutral grey over the map's own unavailable block, hatched
+    const inactive = dOf('WEST UPPER 1');
+    expect(tier('inactive')).toContain(inactive);
+    const ghost = layersOf('inactive', inactive);
+    expect(ghost.map((l) => l.layer)).toEqual(['0', 'hatch']);
+    expect(neutral(ghost[0].fill)).toBe(true);
+    expect(brightness(ghost[0].fill)).toBeGreaterThan(200);
+    expect(Number(ghost[0].opacity)).toBeGreaterThan(0.7); // faded labels
+    expect(ghost[1].fill).toMatch(/^url\(#tmsv-hatch-\d+\)$/);
+    expect(overlay().querySelector('defs pattern').getAttribute('id')).toBe(ghost[1].fill.slice(5, -1));
   });
 
-  it('draws a block no section matches (no tickets at all) flat and pale like the map\'s own unavailable ones, not like the toned-down ones', () => {
+  it('draws a block no section matches (no tickets at all) the same ghost as the map\'s own unavailable ones, after draining its blue', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
     link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false }); // loading: a block with no ticket yet has none
-    const empty = first('empty');
-    expect(empty).not.toBeNull();
-    expect(empty.getAttribute('style')).toBeNull();
-    expect(neutral(empty.getAttribute('fill'))).toBe(true);
-    expect(brightness(empty.getAttribute('fill'))).toBeGreaterThan(brightness(first('filtered') ? first('filtered').getAttribute('fill') : '#808080'));
+    const empty = tier('empty')[0];
+    expect(empty).toBeDefined();
+    const layers = layersOf('empty', empty);
+    expect(layers.map((l) => l.layer)).toEqual(['0', '1', 'hatch']);
+    expect(layers[0].style).toBe('mix-blend-mode:saturation'); // blue underneath: drained of its colour first
+    expect(Number(layers[0].opacity)).toBe(1);
+    // ...then faded exactly as the map's own unavailable block is (same layer, same hatching)
+    const unavailable = layersOf('inactive', tier('inactive')[0]);
+    expect(layers[1]).toMatchObject({ fill: unavailable[0].fill, opacity: unavailable[0].opacity, style: null });
+    expect(layers[2].fill).toBe(unavailable[1].fill);
+  });
+
+  it('hatches everything with no tickets except a block that is the stage', () => {
+    buildMap();
+    block('WEST UPPER 1').setAttribute('data-active', 'false');
+    const stage = block('WEST UPPER 2');
+    stage.setAttribute('data-section-name', 'STAGE');
+    stage.setAttribute('data-active', 'false');
+    link = createMapLink({ log: () => {} });
+    show('NTHU3');
+    expect(layersOf('inactive', dOf('WEST UPPER 1')).map((l) => l.layer)).toEqual(['0', 'hatch']);
+    expect(layersOf('inactive', stage.getAttribute('d')).map((l) => l.layer)).toEqual(['0']); // faded with the rest, never hatched
+  });
+
+  it('draws the hatching about the same size on the screen whatever the size of the map', () => {
+    buildMap();
+    block('WEST UPPER 1').setAttribute('data-active', 'false');
+    const svg = host.querySelector('svg');
+    const lines = () => Number(overlay().querySelector('defs pattern').getAttribute('width'));
+    svg.getBoundingClientRect = () => ({ width: 1000, height: 750, left: 0, top: 0, right: 1000, bottom: 750 });
+    link = createMapLink({ log: () => {} });
+    show('NTHU3');
+    const big = lines();
+    svg.getBoundingClientRect = () => ({ width: 250, height: 190, left: 0, top: 0, right: 250, bottom: 190 });
+    vi.advanceTimersByTime(1500); // the map is looked at again every second
+    expect(lines()).toBeGreaterThan(big * 3); // a quarter the size on the screen: the lines are four times as far apart in the map's own units
   });
 
   it('fades the map\'s own unavailable blocks only while it is marking others: with nothing filtered the map is left as it is', () => {

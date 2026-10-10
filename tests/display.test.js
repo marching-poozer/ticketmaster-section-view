@@ -391,7 +391,7 @@ describe('the venue\'s seat map on the page', () => {
   }
   const block = (name) => document.querySelector(`path[data-component="svg__section"][data-section-name="${name}"]`);
   const overlay = () => document.querySelector('svg > g[data-tmsv-overlay]');
-  const veiled = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).map((p) => p.getAttribute('d'));
+  const veiled = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier="filtered"][data-tmsv-layer="0"], path[data-tmsv-tier="empty"][data-tmsv-layer="0"]')).map((p) => p.getAttribute('d'));
   const listSection = (name) => inlineHost().shadowRoot.querySelector(`.section[data-section="${name}"]`);
   const search = (text) => {
     const input = inlineHost().shadowRoot.querySelector('.search');
@@ -436,7 +436,7 @@ describe('the venue\'s seat map on the page', () => {
     await start({ loadMode: 'scroll' });
     await settle(1200);
     const note = () => inlineHost().shadowRoot.querySelector('.map-note');
-    const styles = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier="filtered"], path[data-tmsv-tier="empty"]')).map((p) => p.getAttribute('data-tmsv-tier') + ':' + p.getAttribute('fill') + '|' + p.getAttribute('fill-opacity'));
+    const styles = () => Array.from(overlay().querySelectorAll('path[data-tmsv-tier]')).map((p) => p.getAttribute('data-tmsv-tier') + '/' + p.getAttribute('data-tmsv-layer') + ':' + p.getAttribute('fill') + '|' + p.getAttribute('fill-opacity'));
     search('BLOCKA'); // only BLOCKA matches so far
     await settle(1200);
     expect(note().hidden).toBe(false);
