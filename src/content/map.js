@@ -40,24 +40,20 @@ const REDRAW_AFTER_MS = [250, 600, 1200]; // the map zooms with an animation: lo
 const MAX_LISTED = 12;
 
 const EMPTY_LINKS = { blockToSection: new Map(), sectionToBlocks: new Map() };
-const NO_TIERS = { filtered: [], empty: [], inactive: [] };
+const NO_TIERS = { filtered: [], inactive: [] };
 
 // How the blocks that are not the point are drawn on top of the map's own (see blockTiers). The labels are white text in the
 // map's background picture, under everything we draw, so what is drawn over a block must not bury them. Three levels:
 //   - a block with tickets that show is left alone (Ticketmaster's blue);
-//   - `filtered`: it has tickets but the filters leave none: a lighter, softer blue (a `saturation` blend takes half its colour,
-//     a `screen` blend lightens it), and the white label stays as crisp as it was;
-//   - `empty` (no section matches it) and `inactive` (the map's own unavailable block): a ghost, pale grey with the label
-//     faded, and hatched with diagonal lines, so "nothing here" is plain at a glance. `empty` is blue underneath, so it is
-//     drained of colour first (a `saturation` blend) to land on the same grey as `inactive`.
+//   - `filtered`: the map says it is available but nothing of it shows: a lighter, softer blue (a `saturation` blend takes half
+//     its colour, a `screen` blend lightens it), and the white label stays as crisp as it was;
+//   - `inactive` (the map's own unavailable block): a ghost, pale grey with the label faded, and cross-hatched, so "nothing
+//     here" is plain at a glance.
 // Each layer is a path over the block's own shape. Without blend support the blends fall back to plain greys.
-const GREY_BLEND = { fill: '#808080', style: 'mix-blend-mode:saturation' };
-const FILTERED_LAYERS = [Object.assign({ 'fill-opacity': '0.5' }, GREY_BLEND), { fill: '#4b4b4b', 'fill-opacity': '1', style: 'mix-blend-mode:screen' }];
-const GHOST_LAYER = { fill: '#e4e4e6', 'fill-opacity': '0.85' };
-const EMPTY_LAYERS = [Object.assign({ 'fill-opacity': '1' }, GREY_BLEND), GHOST_LAYER];
-const INACTIVE_LAYERS = [GHOST_LAYER];
+const FILTERED_LAYERS = [{ fill: '#808080', 'fill-opacity': '0.5', style: 'mix-blend-mode:saturation' }, { fill: '#4b4b4b', 'fill-opacity': '1', style: 'mix-blend-mode:screen' }];
+const INACTIVE_LAYERS = [{ fill: '#e4e4e6', 'fill-opacity': '0.85' }];
 const NOT_A_SECTION = /\bstage\b/i; // a block that is the stage (should a venue draw it as one) is faded with the rest but never hatched
-const HATCH_SCREEN_PX = 11; // the hatching is about this many pixels from line to line on the screen, whatever the map's zoom
+const HATCH_SCREEN_PX = 12; // the hatching is about this many pixels from line to line on the screen, whatever the map's zoom
 let hatchCount = 0;
 const RESET_LABEL = /\breset\b|re-?cent(?:er|re)|zoom to fit|fit (?:to )?(?:screen|map|view)|overview|full (?:map|view)|show (?:the )?(?:whole|full|all)/i;
 const ZOOM_IN_LABEL = /zoom ?in|^\+$/i;
@@ -199,7 +195,7 @@ export function createMapLink(options) {
     return Math.max(4, Math.round(units / 4) * 4); // in steps, so a map that is resized a little is not redrawn for it
   }
 
-  /** The hatching: thin diagonal dark lines, as a <defs> holding a pattern with this id. */
+  /** The cross-hatching: thin dark lines crossing diagonally both ways, as a <defs> holding a pattern with this id. */
   function hatchPattern(id, period) {
     const defs = doc.createElementNS(SVG_NS, 'defs');
     const pattern = doc.createElementNS(SVG_NS, 'pattern');
@@ -207,13 +203,16 @@ export function createMapLink(options) {
     pattern.setAttribute('patternUnits', 'userSpaceOnUse');
     pattern.setAttribute('width', String(period));
     pattern.setAttribute('height', String(period));
-    pattern.setAttribute('patternTransform', 'rotate(45)');
-    const line = doc.createElementNS(SVG_NS, 'rect');
-    line.setAttribute('width', String(Math.max(1, Math.round(period * 0.18))));
-    line.setAttribute('height', String(period));
-    line.setAttribute('fill', '#000');
-    line.setAttribute('fill-opacity', '0.18');
-    pattern.append(line);
+    pattern.setAttribute('patternTransform', 'rotate(45)'); // a square grid of lines, turned
+    const thick = String(Math.max(1, Math.round(period * 0.14)));
+    [{ width: thick, height: String(period) }, { width: String(period), height: thick }].forEach(function (size) {
+      const line = doc.createElementNS(SVG_NS, 'rect');
+      line.setAttribute('width', size.width);
+      line.setAttribute('height', size.height);
+      line.setAttribute('fill', '#000');
+      line.setAttribute('fill-opacity', '0.15');
+      pattern.append(line);
+    });
     defs.append(pattern);
     return defs;
   }
@@ -259,16 +258,16 @@ export function createMapLink(options) {
     // arriving); a block no section matches is only treated as having no tickets if the linking is complete (see linkingComplete).
     const known = sections.length > 0; // with no tickets yet there is nothing to say
     const tiers = enabled && known && !zoomed ? blockTiers(current(binding), binding.links, visible, ready ? linkingComplete(binding.links, sections) : true) : NO_TIERS;
-    const marked = tiers.filtered.length + tiers.empty.length > 0;
+    const marked = tiers.filtered.length > 0;
     const faded = marked ? tiers.inactive : []; // the map's own unavailable blocks join the scale only while we mark others
-    const dim = tiers.filtered.concat(tiers.empty);
-    const hatched = new Set(tiers.empty.concat(faded).filter(function (i) { return !NOT_A_SECTION.test(binding.blocks[i].name); }));
+    const dim = tiers.filtered;
+    const hatched = new Set(faded.filter(function (i) { return !NOT_A_SECTION.test(binding.blocks[i].name); }));
     const period = hatchPeriod(binding);
     const outline = enabled && !zoomed && highlighted !== null ? binding.links.sectionToBlocks.get(highlighted) || [] : [];
     const rings = enabled && zoomed ? seatsToRing(binding) : [];
     const greySeats = enabled && zoomed ? seatsToGrey(binding) : []; // a seat whose ticket has loaded and is filtered out: grey now; one not loaded yet is left alone
     const labelled = enabled && !zoomed && Date.now() < labelsUntil;
-    const signature = JSON.stringify([tiers.filtered, tiers.empty, faded, hatched.size ? period : 0, outline, binding.blocks.length, rings, greySeats, labelled, ready]);
+    const signature = JSON.stringify([tiers.filtered, faded, hatched.size ? period : 0, outline, binding.blocks.length, rings, greySeats, labelled, ready]);
     if (binding.overlay && binding.overlay.isConnected && signature === binding.drawn) return;
     binding.drawn = signature;
 
@@ -298,7 +297,7 @@ export function createMapLink(options) {
       };
     };
     const flat = function (lists) { return [].concat.apply([], lists); };
-    const shapes = seatShapes.concat(hatch, flat(tiers.filtered.map(layered('filtered', FILTERED_LAYERS))), flat(tiers.empty.map(layered('empty', EMPTY_LAYERS))), flat(faded.map(layered('inactive', INACTIVE_LAYERS))), outline.map(function (i) {
+    const shapes = seatShapes.concat(hatch, flat(tiers.filtered.map(layered('filtered', FILTERED_LAYERS))), flat(faded.map(layered('inactive', INACTIVE_LAYERS))), outline.map(function (i) {
       return shape(binding, i, { fill: 'none', stroke: '#ffb300', 'stroke-width': '4', 'stroke-linejoin': 'round', 'vector-effect': 'non-scaling-stroke' });
     }), rings.map(function (seat) {
       const ring = doc.createElementNS(SVG_NS, 'circle');

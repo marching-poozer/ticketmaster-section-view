@@ -795,23 +795,28 @@ describe('the greyed blocks, and what the console is told', () => {
     expect(brightness(ghost[0].fill)).toBeGreaterThan(200);
     expect(Number(ghost[0].opacity)).toBeGreaterThan(0.7); // faded labels
     expect(ghost[1].fill).toMatch(/^url\(#tmsv-hatch-\d+\)$/);
-    expect(overlay().querySelector('defs pattern').getAttribute('id')).toBe(ghost[1].fill.slice(5, -1));
+    const pattern = overlay().querySelector('defs pattern');
+    expect(pattern.getAttribute('id')).toBe(ghost[1].fill.slice(5, -1));
+    // cross-hatching: a grid of lines (one running each way across the tile) turned a quarter of the way round
+    expect(pattern.getAttribute('patternTransform')).toBe('rotate(45)');
+    const lines = Array.from(pattern.querySelectorAll('rect')).map((r) => [Number(r.getAttribute('width')), Number(r.getAttribute('height'))]);
+    expect(lines).toHaveLength(2);
+    const side = Number(pattern.getAttribute('width'));
+    expect(lines.filter(([w, h]) => h === side && w < side / 3)).toHaveLength(1); // across
+    expect(lines.filter(([w, h]) => w === side && h < side / 3)).toHaveLength(1); // and down
   });
 
-  it('draws a block no section matches (no tickets at all) the same ghost as the map\'s own unavailable ones, after draining its blue', () => {
+  it('only tones down a block the map says is available but no section of ours matches: the map knows of tickets there (at some quantity), so it is not hatched', () => {
     buildMap();
     link = createMapLink({ log: () => {} });
-    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: false }); // loading: a block with no ticket yet has none
-    const empty = tier('empty')[0];
-    expect(empty).toBeDefined();
-    const layers = layersOf('empty', empty);
-    expect(layers.map((l) => l.layer)).toEqual(['0', '1', 'hatch']);
-    expect(layers[0].style).toBe('mix-blend-mode:saturation'); // blue underneath: drained of its colour first
-    expect(Number(layers[0].opacity)).toBe(1);
-    // ...then faded exactly as the map's own unavailable block is (same layer, same hatching)
-    const unavailable = layersOf('inactive', tier('inactive')[0]);
-    expect(layers[1]).toMatchObject({ fill: unavailable[0].fill, opacity: unavailable[0].opacity, style: null });
-    expect(layers[2].fill).toBe(unavailable[1].fill);
+    link.update({ sections: realSections, visible: new Set(['NTHU3']), ready: true }); // every section of ours has its block, so NORTH UPPER 2 has nothing of ours
+    const unmatched = dOf('NORTH UPPER 2');
+    expect(layersOf('filtered', unmatched).map((l) => l.layer)).toEqual(['0', '1']); // softer blue, no hatch layer
+    expect(layersOf('inactive', unmatched)).toEqual([]);
+    // only the map's own unavailable blocks are hatched
+    const hatched = Array.from(overlay().querySelectorAll('path[data-tmsv-layer="hatch"]')).map((p) => p.getAttribute('d'));
+    expect(hatched.sort()).toEqual(tier('inactive').sort());
+    expect(hatched.length).toBeGreaterThan(0);
   });
 
   it('hatches everything with no tickets except a block that is the stage', () => {

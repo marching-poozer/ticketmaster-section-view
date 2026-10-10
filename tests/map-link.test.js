@@ -279,7 +279,7 @@ describe('which blocks to dim', () => {
   });
 });
 
-describe('the tiers of a block', () => {
+describe('the levels of a block', () => {
   const blocks = [
     { id: 'a', name: 'A', active: true },
     { id: 'b', name: 'B', active: true },
@@ -288,22 +288,25 @@ describe('the tiers of a block', () => {
   ];
   const links = { blockToSection: new Map([[0, 'A'], [1, 'B'], [2, 'C']]), sectionToBlocks: new Map() };
 
-  it('are: has tickets that show (in none of the lists), has tickets the filters hide (filtered), and has none at all (empty, inactive)', () => {
-    expect(blockTiers(blocks, links, new Set(['A']), true)).toEqual({ filtered: [1], empty: [3], inactive: [2] });
+  it('are: has tickets that show (in neither list), the map says available but nothing of it shows (filtered), the map says unavailable (inactive)', () => {
+    expect(blockTiers(blocks, links, new Set(['A']), true)).toEqual({ filtered: [1, 3], inactive: [2] });
   });
 
-  it('leaves a block it could not link in none of them unless told the linking is complete', () => {
-    expect(blockTiers(blocks, links, new Set(['A']), false)).toEqual({ filtered: [1], empty: [], inactive: [2] });
+  it('puts a block the map says is available but no section of ours matches with those the filters hide: there is something there, at some quantity, that the list does not offer', () => {
+    expect(blockTiers(blocks, links, new Set(['A', 'B']), true).filtered).toEqual([3]);
   });
 
-  it('puts what the map itself shows as unavailable in the last tier whatever the filters are', () => {
+  it('leaves a block it could not link in neither of them unless told the linking is complete', () => {
+    expect(blockTiers(blocks, links, new Set(['A']), false)).toEqual({ filtered: [1], inactive: [2] });
+  });
+
+  it('puts what the map itself shows as unavailable in the last level whatever the filters are', () => {
     expect(blockTiers(blocks, links, new Set(['A', 'B', 'C']), true).inactive).toEqual([2]);
     expect(blockTiers(blocks, links, new Set(), true).inactive).toEqual([2]);
   });
 
-  it('is what blocksToDim is made of: the filtered and the empty, in block order', () => {
-    const tiers = blockTiers(blocks, links, new Set(['B']), true);
-    expect(blocksToDim(blocks, links, new Set(['B']), true)).toEqual(tiers.filtered.concat(tiers.empty).sort((a, b) => a - b));
+  it('is what blocksToDim returns: the filtered ones', () => {
+    expect(blocksToDim(blocks, links, new Set(['B']), true)).toEqual(blockTiers(blocks, links, new Set(['B']), true).filtered);
   });
 });
 
