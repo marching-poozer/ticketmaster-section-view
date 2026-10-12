@@ -601,7 +601,7 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
     app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', frontRows: 3 }), version: '1.2.3', seatCounts });
     document.body.append(app.root);
     app.start();
-    expect(seatCounts).toHaveBeenCalledWith({ firstRows: [1], frontRows: 3 });
+    expect(seatCounts).toHaveBeenCalledWith(expect.objectContaining({ firstRows: [1], frontRows: 3 }));
   });
 
   it('say on hover what the counts are, and how they differ from the list\'s', () => {
@@ -628,6 +628,110 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
     expect(seatPills()).toEqual(plain);
     expect(plain[0]).toMatch(/^Any \(\d+\)$/);
     expect(qa('[data-seat]')[0].title).toBe('');
+  });
+});
+
+describe('the tier choice (Lower | Middle | Upper)', () => {
+  const venueHeader = '<div id="header"><a href="/3arena-tickets-dublin/venue/197033">3Arena, Dublin</a></div>';
+  const tierPills = () => qa('[data-tier]').map((p) => p.textContent);
+  const sections = () => qa('.section').map((e) => e.getAttribute('data-section')).sort();
+  const open = async (venue = { firstRows: [1, 15], frontRows: 5 }, extra = {}) => {
+    document.body.insertAdjacentHTML('afterbegin', venueHeader);
+    sampleCards();
+    await saveVenue('197033', { name: '3Arena, Dublin', ...venue });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', ...extra.settings }), version: '1.2.3', ...extra.options });
+    document.body.append(app.root);
+    app.start();
+    await flush();
+  };
+
+  it('is not there for a venue with no tiers (the rows start at 1: one tier)', async () => {
+    await open({ firstRows: [1], frontRows: 5 });
+    expect(q('[data-group="tier"]').hidden).toBe(true);
+  });
+
+  it('has a tier for each row the user gave as the first row of a tier: two are Lower and Upper (with their counts)', async () => {
+    await open();
+    expect(q('[data-group="tier"]').hidden).toBe(false);
+    expect(tierPills()).toEqual(['Any (4)', 'Lower (2)', 'Upper (1)']); // rows 3 and 12 are lower, row 20 upper, standing is in none
+  });
+
+  it('has a Middle for three', async () => {
+    await open({ firstRows: [1, 10, 18], frontRows: 5 });
+    expect(tierPills()).toEqual(['Any (4)', 'Lower (1)', 'Middle (1)', 'Upper (1)']);
+  });
+
+  it('shows only the tickets of the tier chosen, and remembers it', async () => {
+    await open();
+    q('[data-tier="upper"]').click();
+    await flush();
+    expect(sections()).toEqual(['102']);
+    expect(peekStorage('tierFilter')).toBe('upper');
+    q('[data-tier="lower"]').click();
+    expect(sections()).toEqual(['101']);
+    q('[data-tier="any"]').click();
+    await flush();
+    expect(sections()).toEqual(['101', '102', 'PIT']);
+    expect(peekStorage('tierFilter')).toBe('any');
+  });
+
+  it('starts with the tier that was remembered', async () => {
+    await open(undefined, { settings: { tierFilter: 'lower' } });
+    expect(q('[data-tier="lower"]').getAttribute('aria-checked')).toBe('true');
+    expect(sections()).toEqual(['101']);
+  });
+
+  it('ignores a remembered tier this venue does not have (it was chosen at another), without forgetting it', async () => {
+    await open({ firstRows: [1], frontRows: 5 }, { settings: { tierFilter: 'middle' } });
+    expect(q('[data-group="tier"]').hidden).toBe(true);
+    expect(sections()).toEqual(['101', '102', 'PIT']);
+    expect(peekStorage('tierFilter')).toBeUndefined();
+  });
+
+  it('counts the other pills with the tier as it is, and the tier pills with the other filters as they are', async () => {
+    await open();
+    q('[data-tier="lower"]').click();
+    expect(qa('[data-seat]').map((p) => p.textContent)).toEqual(['Any (2)', '🥇 1st Row (0)', '⭐ First 5 Rows (1)']); // the lower tier's tickets: rows 3 and 12
+    qa('.pill').find((p) => p.getAttribute('data-badge') === 'resale').click(); // show only resale: the row 20 ticket, which is upper
+    expect(tierPills()).toEqual(['Any (1)', 'Lower (0)', 'Upper (1)']);
+  });
+
+  it('tells the map which tier is chosen, and how to tell the tier of a seat', async () => {
+    const onSections = vi.fn();
+    await open(undefined, { options: { onSections } });
+    q('[data-tier="upper"]').click();
+    const filters = onSections.mock.calls[onSections.mock.calls.length - 1][0].filters;
+    expect(filters.tier).toBe('upper');
+    expect(filters.tierOf({ row: '20' })).toBe('upper');
+    expect(filters.tierOf({ row: '3' })).toBe('lower');
+    expect(filters.tierOf({ row: 'GA' })).toBeNull();
+  });
+
+  it('asks the map for the seats of each tier, and shows what it says (not the list\'s counts), with a note on hover', async () => {
+    const seatCounts = vi.fn(() => ({ all: 872, seats: 50, standing: 822, firstrow: 7, frontrows: 31, tiers: { lower: 37, upper: 13 } }));
+    await open(undefined, { options: { seatCounts } });
+    expect(seatCounts.mock.calls[seatCounts.mock.calls.length - 1][0].tierKeys).toEqual(['lower', 'upper']); // (once the venue's rows are known)
+    expect(tierPills()).toEqual(['Any (872)', 'Lower (37)', 'Upper (13)']);
+    expect(q('[data-tier="lower"]').title).toMatch(/^37 seats on sale in the lower tier \(the venue's seat map: every one on sale/);
+    q('[data-tier="upper"]').click();
+    expect(tierPills()).toEqual(['Any (872)', 'Lower (37)', 'Upper (13)']); // not moved by the choice
+  });
+
+  it('has the tiers the venue\'s map names, when the user gave no rows (the O2 Belfast), and tells the map by block', async () => {
+    const mapTiers = () => ({ words: new Set(['lower', 'middle', 'upper']), byBlock: new Map([['s_5', 'lower'], ['s_79', 'middle']]) });
+    const onSections = vi.fn();
+    await open({ firstRows: [1], frontRows: 5 }, { options: { mapTiers, onSections } });
+    expect(tierPills().map((t) => t.replace(/ \(\d+\)$/, ''))).toEqual(['Any', 'Lower', 'Middle', 'Upper']);
+    q('[data-tier="middle"]').click();
+    const filters = onSections.mock.calls[onSections.mock.calls.length - 1][0].filters;
+    expect(filters.tierOf({ block: 's_79', row: 'M' })).toBe('middle');
+    expect(filters.tierOf({ block: 's_5', row: 'C' })).toBe('lower');
+  });
+
+  it('takes the user\'s rows over the map\'s words', async () => {
+    const mapTiers = () => ({ words: new Set(['lower', 'middle', 'upper']), byBlock: new Map() });
+    await open(undefined, { options: { mapTiers } }); // the venue says rows 1 and 15
+    expect(tierPills().map((t) => t.replace(/ \(\d+\)$/, ''))).toEqual(['Any', 'Lower', 'Upper']);
   });
 });
 

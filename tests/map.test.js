@@ -1436,6 +1436,43 @@ describe('with the map\'s own seat data', () => {
     expect(lines.join('\n')).toMatch(/The map's own data: 50 seats and 822 standing tickets on sale; 2 of the 4 seats in our list are among them\./);
   });
 
+  it('knows the tiers the map names, from the names of its blocks, and nothing without its data', () => {
+    start();
+    const info = link.tierInfo();
+    expect(info.words).toEqual(new Set(['lower', 'middle', 'upper']));
+    expect(info.byBlock.get('s_5')).toBe('lower'); // NORTH LOWER 1
+    expect(info.byBlock.get('s_79')).toBe('middle');
+    expect(info.byBlock.get('s_49')).toBe('upper');
+    expect(info.byBlock.has('s_112')).toBe(false); // the standing floor is in no tier
+    buildMap();
+    link = createMapLink({ log: () => {} });
+    expect(link.tierInfo()).toBeNull();
+  });
+
+  it('dims the blocks with no seat on sale in the tier chosen, the list\'s or not, and spares the ones that have', () => {
+    start();
+    const info = link.tierInfo();
+    const tierOf = (seat) => info.byBlock.get(seat.block) || null;
+    link.update(state({}, { tier: 'middle', tierOf, quantity: 2 }));
+    expect(dimmed()).not.toContain(dOf('NORTH MIDDLE 3', 's_79'));
+    expect(dimmed()).not.toContain(dOf('NORTH MIDDLE 4'));
+    expect(dimmed()).toContain(dOf('NORTH LOWER 1'));
+    expect(dimmed()).toContain(dOf('EAST LOWER 8'));
+    expect(dimmed()).toContain(dOf('WEST UPPER 1'));
+    expect(dimmed()).toContain(dOf('GROUND FLOOR STANDING', 's_112'));
+    expect(candidates()).toEqual(expect.arrayContaining([dOf('NORTH MIDDLE 3', 's_79')])); // seats that match, nothing in the list to show
+  });
+
+  it('would find something for a tier pill when seats on sale are in it, with everything else as it is', () => {
+    start();
+    const info = link.tierInfo();
+    link.update(state({}, { tierOf: (seat) => info.byBlock.get(seat.block) || null, quantity: 1 }));
+    expect(link.canMatch('tier', 'lower')).toBe(true);
+    expect(link.canMatch('tier', 'upper')).toBe(true);
+    link.update(state({}, { tierOf: (seat) => info.byBlock.get(seat.block) || null, quantity: 1, show: ['standing'] }));
+    expect(link.canMatch('tier', 'lower')).toBe(false); // standing is in no tier
+  });
+
   it('has no opinion without its data', () => {
     buildMap();
     link = createMapLink({ log: () => {} });

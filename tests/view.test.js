@@ -6,6 +6,7 @@ function makeHandlers() {
   return {
     onSearch: vi.fn(),
     onSeatSelect: vi.fn(),
+    onTierSelect: vi.fn(),
     onQualitySelect: vi.fn(),
     onPriceSelect: vi.fn(),
     onBadgeCycle: vi.fn(),
@@ -48,10 +49,11 @@ function make(handlers = makeHandlers()) {
 }
 
 describe('createView', () => {
-  it('shows the version and builds the filter pills in groups: Seats, Quality, Price and Other', () => {
+  it('shows the version and builds the filter pills in groups: Seats, Tier, Quality, Price and Other (Tier and Quality are hidden until there is something to choose)', () => {
     const { q, qa } = make();
     expect(q('.version').textContent).toBe('v1.2.3');
-    expect(qa('.pill-group').map((g) => g.querySelector('.pill-label').textContent)).toEqual(['Seats', 'Quality', 'Price', 'Other']);
+    expect(qa('.pill-group').map((g) => g.querySelector('.pill-label').textContent)).toEqual(['Seats', 'Tier', 'Quality', 'Price', 'Other']);
+    expect(q('[data-group="tier"]').hidden).toBe(true);
     expect(qa('[data-seat]').map((p) => p.textContent)).toEqual(['Any', '🥇 1st Row', '⭐ First 5 Rows']);
     expect(qa('[data-quality]').map((p) => p.textContent)).toEqual(['Any', '💎 Top 10%', '🌟 Top 25%', '✨ Top 50%']);
     expect(qa('[data-price]').map((p) => p.textContent)).toEqual(['Any', '🔥 Cheapest', '💡 Section Low']);
@@ -75,7 +77,7 @@ describe('createView', () => {
 
     it('are drawn as one pill split into segments', () => {
       const { q, qa } = make();
-      expect(qa('.segmented')).toHaveLength(3);
+      expect(qa('.segmented')).toHaveLength(4); // (the Tier group's is empty until a venue has tiers)
       expect(q('[data-group="quality"] .segmented').querySelectorAll('[data-quality]')).toHaveLength(4);
       expect(q('[data-group="seat"] .segmented').querySelectorAll('[data-seat]')).toHaveLength(3);
       expect(q('[data-group="price"] .segmented').querySelectorAll('[data-price]')).toHaveLength(3);
@@ -185,6 +187,78 @@ describe('createView', () => {
       expect(handlers.onSeatSelect).toHaveBeenCalledWith('frontrows');
       view.setSeat('frontrows');
       expect(q('[data-seat="frontrows"]').getAttribute('aria-checked')).toBe('true');
+    });
+  });
+
+  describe('the tier choice', () => {
+    const tiers = [{ key: 'lower', label: 'Lower' }, { key: 'middle', label: 'Middle' }, { key: 'upper', label: 'Upper' }];
+
+    it('is hidden until the venue has two tiers or more, and then offers Any and each tier, from the floor up', () => {
+      const { view, q, qa } = make();
+      expect(q('[data-group="tier"]').hidden).toBe(true);
+      view.setTiers([{ key: 'lower', label: 'Lower' }]);
+      expect(q('[data-group="tier"]').hidden).toBe(true);
+      view.setTiers(tiers);
+      expect(q('[data-group="tier"]').hidden).toBe(false);
+      expect(qa('[data-tier]').map((p) => p.textContent)).toEqual(['Any', 'Lower', 'Middle', 'Upper']);
+      view.setTiers([]);
+      expect(q('[data-group="tier"]').hidden).toBe(true);
+    });
+
+    it('sits after the Seats, and is a split pill like them (one choice, radio buttons)', () => {
+      const { view, q, qa } = make();
+      view.setTiers(tiers);
+      expect(qa('.pill-group').map((g) => g.getAttribute('data-group'))).toEqual(['seat', 'tier', 'quality', 'price', 'other']);
+      expect(q('[data-group="tier"] .segmented').getAttribute('role')).toBe('radiogroup');
+      expect(qa('[data-tier]').every((p) => p.getAttribute('role') === 'radio')).toBe(true);
+    });
+
+    it('tells the app which tier was chosen', () => {
+      const { view, handlers, q } = make();
+      view.setTiers(tiers);
+      q('[data-tier="middle"]').click();
+      expect(handlers.onTierSelect).toHaveBeenCalledWith('middle');
+    });
+
+    it('shows the chosen tier, and keeps it chosen when the pills are made again, or falls back to Any when it is no longer there', () => {
+      const { view, qa } = make();
+      view.setTiers(tiers);
+      view.setTier('upper');
+      expect(qa('[data-tier]').map((p) => p.getAttribute('aria-checked'))).toEqual(['false', 'false', 'false', 'true']);
+      view.setTiers([{ key: 'lower', label: 'Lower' }, { key: 'upper', label: 'Upper' }]);
+      expect(qa('[data-tier]').map((p) => p.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+      view.setTiers([{ key: 'lower', label: 'Lower' }, { key: 'middle', label: 'Middle' }]);
+      expect(qa('[data-tier]').map((p) => p.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+      expect(qa('[data-tier]')[0].getAttribute('tabindex')).toBe('0');
+    });
+
+    it('moves with the arrow keys, like the other choices', () => {
+      const { view, handlers, q } = make();
+      view.setTiers(tiers);
+      view.setTier('any');
+      q('[data-tier="any"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      expect(handlers.onTierSelect).toHaveBeenCalledWith('lower');
+    });
+
+    it('counts the tiers like the other pills, also when they are made after the counts came', () => {
+      const { view, qa } = make();
+      view.setCounts({ seat: {}, tier: { any: 100, lower: 40, middle: 35, upper: 25 }, price: {}, other: {} });
+      view.setTiers(tiers);
+      expect(qa('[data-tier]').map((p) => p.textContent)).toEqual(['Any (100)', 'Lower (40)', 'Middle (35)', 'Upper (25)']);
+      view.setCounts({ seat: {}, tier: { any: 90, lower: 0, middle: 35, upper: 25 }, price: {}, other: {} });
+      expect(qa('[data-tier]')[1].classList.contains('zero')).toBe(true);
+    });
+
+    it('says on hover what the counts are, when the map gave them', () => {
+      const { view, q } = make();
+      view.setTiers(tiers);
+      view.setTierCountNotes({ any: 'ANY', lower: 'LOWER NOTE' });
+      expect(q('[data-tier="lower"]').title).toBe('LOWER NOTE');
+      expect(q('[data-tier="upper"]').title).toBe('');
+      view.setTiers(tiers.slice(0, 2)); // (made again: the notes stay)
+      expect(q('[data-tier="lower"]').title).toBe('LOWER NOTE');
+      view.setTierCountNotes(null);
+      expect(q('[data-tier="lower"]').title).toBe('');
     });
   });
 

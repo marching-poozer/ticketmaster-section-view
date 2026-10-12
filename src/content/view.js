@@ -189,7 +189,7 @@ function sectionNode(group, sort, expanded, hooks, onSectionHover, mouse) {
 }
 
 /**
- * `handlers`: onSearch(text), onSeatSelect(key), onQualitySelect(key), onPriceSelect(key), onBadgeCycle(key), onSort('row'|'price'),
+ * `handlers`: onSearch(text), onSeatSelect(key), onTierSelect(key), onQualitySelect(key), onPriceSelect(key), onBadgeCycle(key), onSort('row'|'price'),
  * onQuantityStep(delta), onShowOriginal(), onOpenSettings(),
  * onSaveVenue({ firstRows, frontRows, badges }), onResetVenue().
  */
@@ -263,12 +263,14 @@ export function createView(handlers, version) {
    * A group of pills of which exactly one is chosen: one pill split into segments ("Standing | 1st Row | All"),
    * behaving as radio buttons (one tab stop, arrow keys move the choice).
    */
+  function choicePill(attribute, f) {
+    const pill = h('button', { type: 'button', class: 'pill', role: 'radio', 'aria-checked': 'false', tabindex: '-1', 'data-label': f.label, text: f.label });
+    pill.setAttribute('data-' + attribute, f.key);
+    return pill;
+  }
+
   function choiceGroup(title, attribute, filters, onChoose) {
-    const pills = filters.map(function (f) {
-      const pill = h('button', { type: 'button', class: 'pill', role: 'radio', 'aria-checked': 'false', tabindex: '-1', 'data-label': f.label, text: f.label });
-      pill.setAttribute('data-' + attribute, f.key);
-      return pill;
-    });
+    const pills = filters.map(function (f) { return choicePill(attribute, f); });
     pills[0].setAttribute('tabindex', '0'); // until something is chosen: the first is "no filter"
     const bar = h(
       'div',
@@ -294,7 +296,7 @@ export function createView(handlers, version) {
       },
       pills
     );
-    return { node: h('div', { class: 'pill-group', 'data-group': attribute }, h('span', { class: 'pill-label', text: title }), bar), pills };
+    return { node: h('div', { class: 'pill-group', 'data-group': attribute }, h('span', { class: 'pill-label', text: title }), bar), pills, bar };
   }
 
   function choose(group, attribute, key) {
@@ -318,6 +320,16 @@ export function createView(handlers, version) {
     });
   }
 
+  // Tier: Any | Lower | Middle | Upper. Which tiers there are depends on the venue (lib/tiers.js), so the pills are made when they are known.
+  const tierGroup = choiceGroup('Tier', 'tier', [{ key: 'any', label: 'Any' }], function (key) { handlers.onTierSelect(key); });
+  tierGroup.node.hidden = true;
+  let tierKey = 'any'; // the chosen tier
+  let tierNotes = null; // { [key]: a sentence }: what the counts on the Tier pills are, when the venue's map gave them
+  function applyTierTitles() {
+    tierGroup.pills.forEach(function (pill) {
+      pill.title = tierNotes ? tierNotes[pill.getAttribute('data-tier')] || '' : '';
+    });
+  }
   const qualityGroup = choiceGroup('Quality', 'quality', QUALITY_FILTERS, function (key) { handlers.onQualitySelect(key); });
   qualityGroup.node.hidden = true; // only once there are quality scores to filter on (they come from the list API)
   const priceGroup = choiceGroup('Price', 'price', PRICE_FILTERS, function (key) { handlers.onPriceSelect(key); });
@@ -359,6 +371,7 @@ export function createView(handlers, version) {
     'div',
     { class: 'filters' },
     seatGroup.node,
+    tierGroup.node,
     qualityGroup.node,
     priceGroup.node,
     h('div', { class: 'pill-group', 'data-group': 'other' }, h('span', { class: 'pill-label', text: 'Other' }), pillBar)
@@ -652,6 +665,7 @@ export function createView(handlers, version) {
       counts = next || null;
       qualityGroup.node.hidden = !(counts && counts.quality);
       countChoices(seatGroup, 'seat', counts && counts.seat);
+      countChoices(tierGroup, 'tier', counts && counts.tier);
       countChoices(qualityGroup, 'quality', counts && counts.quality);
       countChoices(priceGroup, 'price', counts && counts.price);
       syncPills();
@@ -665,10 +679,43 @@ export function createView(handlers, version) {
       maybeMore = typeof fn === 'function' ? fn : null;
       if (counts) {
         countChoices(seatGroup, 'seat', counts.seat);
+        countChoices(tierGroup, 'tier', counts.tier);
         countChoices(qualityGroup, 'quality', counts.quality);
         countChoices(priceGroup, 'price', counts.price);
         syncPills();
       }
+    },
+
+    /**
+     * The tiers the venue has, [{ key, label }] from the floor up (without "Any"), or none: the Tier pills are made from them, and the
+     * group is hidden while there are fewer than two. The chosen tier stays chosen if it is still there, else it is Any.
+     */
+    setTiers(tiers) {
+      const list = tiers || [];
+      const filters = [{ key: 'any', label: 'Any' }].concat(list.map(function (t) { return { key: t.key, label: t.label }; }));
+      const signature = filters.map(function (f) { return f.key + '|' + f.label; }).join('\n');
+      if (tierGroup.signature === signature) return;
+      tierGroup.signature = signature;
+      const pills = filters.map(function (f) { return choicePill('tier', f); });
+      tierGroup.pills.splice(0, tierGroup.pills.length, ...pills);
+      tierGroup.bar.replaceChildren(...pills);
+      tierGroup.node.hidden = list.length < 2;
+      choose(tierGroup, 'tier', pills.some(function (p) { return p.getAttribute('data-tier') === tierKey; }) ? tierKey : 'any');
+      if (!tierGroup.pills.some(function (p) { return p.getAttribute('aria-checked') === 'true'; })) pills[0].setAttribute('tabindex', '0');
+      countChoices(tierGroup, 'tier', counts && counts.tier);
+      applyTierTitles();
+    },
+
+    /** Show which tier is chosen ('any' for none). */
+    setTier(key) {
+      tierKey = key || 'any';
+      choose(tierGroup, 'tier', tierKey);
+    },
+
+    /** What the counts on the Tier pills are ({ [key]: a sentence }), when the venue's map gave them; null when it did not. */
+    setTierCountNotes(notes) {
+      tierNotes = notes || null;
+      applyTierTitles();
     },
 
     /** What the counts on the Seats pills are ({ all, firstrow, frontrows }: a sentence each), when the venue's map gave them; null when it did not. */

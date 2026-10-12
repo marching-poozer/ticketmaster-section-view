@@ -18,20 +18,23 @@ import { rowRank } from './tickets.js';
 /** Is anything filtered? `f` = { seat, quality, price, show, hide, search }. */
 export function filtersActive(f) {
   const g = f || {};
-  return (g.seat === 'firstrow' || g.seat === 'frontrows') || (!!g.quality && g.quality !== 'any') || (!!g.price && g.price !== 'any') ||
+  return (g.seat === 'firstrow' || g.seat === 'frontrows') || (!!g.tier && g.tier !== 'any') || (!!g.quality && g.quality !== 'any') || (!!g.price && g.price !== 'any') ||
     (g.show || []).length > 0 || (g.hide || []).length > 0 || String(g.search || '').trim() !== '';
 }
 
 /**
  * How each filter will be judged on the map.
- * `f` = { seat, firstRows, frontRows, quality, price, show, hide, search, quantity }.
- * Returns { search, seat, firstRows, frontRows, show, hide, exact, quantity } where `show` / `hide` are the keys that can be judged
+ * `f` = { seat, tier, tierOf, firstRows, frontRows, quality, price, show, hide, search, quantity } (`tier` a tier key or 'any'; `tierOf(seat)` says
+ * which tier a seat is in, see lib/tiers.js).
+ * Returns { search, seat, tier, tierOf, firstRows, frontRows, show, hide, exact, quantity } where `show` / `hide` are the keys that can be judged
  * ('standing', 'resale', or an attribute key some seat has) and `exact` is false if any filter had to be ignored.
  */
 export function judgeable(f, availability) {
   const g = f || {};
   const attributeKeys = new Set(availability ? Array.from(availability.attributeNames).map(attributeKey) : []);
   let exact = !(g.quality && g.quality !== 'any') && !(g.price && g.price !== 'any');
+  const wantsTier = !!g.tier && g.tier !== 'any';
+  if (wantsTier && typeof g.tierOf !== 'function') exact = false; // a tier chosen that the map cannot place seats in: ignored
   const show = Array.from(new Set(g.show || []));
   const hide = Array.from(new Set(g.hide || [])).filter(function (key) { return !show.includes(key); });
   const keep = function (key) {
@@ -45,6 +48,8 @@ export function judgeable(f, availability) {
   return {
     search: String(g.search || '').toLowerCase().trim(),
     seat: g.seat === 'firstrow' || g.seat === 'frontrows' ? g.seat : null,
+    tier: wantsTier && typeof g.tierOf === 'function' ? g.tier : null,
+    tierOf: g.tierOf,
     firstRows: g.firstRows || [1],
     frontRows: g.frontRows || 5,
     show: shown,
@@ -58,6 +63,7 @@ export function judgeable(f, availability) {
 function groupPasses(j, group) {
   const first = group[0];
   if (j.search && !String(first.section).toLowerCase().includes(j.search)) return false;
+  if (j.tier && j.tierOf(first) !== j.tier) return false;
   if (j.seat) {
     const position = rowPosition(rowRank(first.row), j.firstRows);
     if (position === null) return false;
@@ -77,6 +83,7 @@ function standingPasses(j, facet, names) {
   if (facet.count < j.quantity) return false;
   if (j.search && !names.some(function (n) { return String(n).toLowerCase().includes(j.search); })) return false;
   if (j.seat) return false; // standing has no row
+  if (j.tier) return false; // ...and is in no tier
   const has = function (key) {
     if (key === 'standing') return true;
     if (key === 'resale') return facet.inventory === 'resale';
@@ -136,7 +143,8 @@ export function evaluateAvailability(availability, geometry, f, namesFor) {
  * How many places are on sale, by what the venue's map knows: { all, seats, standing, firstrow, frontrows }, or null without its data.
  * `seats` is every seat on sale (whatever the quantity: a seat alone counts), `standing` the standing tickets, `all` both, `firstrow` /
  * `frontrows` the seats in the first row / first N rows of each tier (the same tiers and rows as the list: `config` = { firstRows,
- * frontRows }). Nothing here depends on any filter.
+ * frontRows }), and `tiers` the seats on sale in each tier (`config.tierOf(seat)` -> a tier key, `config.tierKeys` the keys; {} without them).
+ * Nothing here depends on any filter.
  */
 export function seatCounts(availability, config) {
   if (!availability) return null;
@@ -144,12 +152,19 @@ export function seatCounts(availability, config) {
   const frontRows = (config && config.frontRows) || 5;
   let firstrow = 0;
   let frontrows = 0;
+  const tiers = {};
+  const tierOf = config && typeof config.tierOf === 'function' ? config.tierOf : null;
+  ((config && config.tierKeys) || []).forEach(function (key) { tiers[key] = 0; });
   availability.seats.forEach(function (seat) {
+    if (tierOf) {
+      const key = tierOf(seat);
+      if (key && key in tiers) tiers[key] += 1;
+    }
     const position = rowPosition(rowRank(seat.row), firstRows);
     if (!position) return;
     if (position.index === 1) firstrow += 1;
     if (position.index <= frontRows) frontrows += 1;
   });
   const standing = availability.standing.reduce(function (n, facet) { return n + facet.count; }, 0);
-  return { all: availability.seats.length + standing, seats: availability.seats.length, standing, firstrow, frontrows };
+  return { all: availability.seats.length + standing, seats: availability.seats.length, standing, firstrow, frontrows, tiers };
 }

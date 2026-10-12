@@ -168,6 +168,8 @@ function annotate(tickets, opts) {
       // How the tier's first row is written on this ticket's row scale: "21", or "K" for lettered rows.
       t.tierStartName = position ? (isLetterRow(t.rowName) ? rankToName(position.tierStart) : String(position.tierStart)) : null;
       t.rowIndex = position ? position.index : null;
+      // Which tier (Lower, Middle, Upper...) it is in: from the venue's tiers (see lib/tiers.js), or null for a place in none (standing, VIP packages).
+      t.tier = opts.tierModel ? opts.tierModel.ofTicket(t) : null;
       // Which share of the event's tickets its quality score is in: 'top10', 'top25', 'top50' or null.
       t.qualityTier = typeof t.quality === 'number'
         ? Object.keys(QUALITY_SHARES).find(function (key) { return cutoffs[key] !== null && passesQuality(t.quality, cutoffs[key]); }) || null
@@ -200,7 +202,7 @@ function applyPriceFilter(tickets, price) {
 
 /**
  * The tickets that pass the filters, in the order they are applied: the section name search, the seat
- * choice ('firstrow' | 'frontrows' | 'all'), the quality choice ('top10' | 'top25' | 'top50'
+ * choice ('firstrow' | 'frontrows' | 'all'), the tier (`tier`: 'lower' | 'middle' | 'upper'... or 'any'; see lib/tiers.js), the quality choice ('top10' | 'top25' | 'top50'
  * | 'any': the best share of the whole event's tickets, however the others are filtered), the "other"
  * badges (all must be present: `other`), the hidden ones (none may be present: `hide`), and last the price choice ('cheapest' | 'sectionlow' | 'any'), so
  * "cheapest" is the cheapest of what is left (front rows + section low = the cheapest front-row ticket in
@@ -216,6 +218,7 @@ export function filterTickets(tickets, filters) {
 
   let list = tickets.filter(function (t) { return t.section.toLowerCase().includes(search); });
   if (seat) list = list.filter(function (t) { return t.badges[seat]; });
+  if (f.tier && f.tier !== 'any') list = list.filter(function (t) { return t.tier === f.tier; });
   if (cutoff !== null) list = list.filter(function (t) { return passesQuality(t.quality, cutoff); });
   if (other.length > 0) list = list.filter(function (t) { return other.every(function (key) { return t.badges[key]; }); });
   if (hide.length > 0) list = list.filter(function (t) { return !hide.some(function (key) { return t.badges[key]; }); });
@@ -225,13 +228,17 @@ export function filterTickets(tickets, filters) {
 /**
  * How many tickets each pill would show if it were chosen, with everything else as it is now: a seat
  * or price pill replaces the current choice in its group, an "other" pill is added to the others.
- * { seat: { firstrow, frontrows, all }, quality: { any, top10, top25, top50 } or null when no ticket has
+ * { seat: { firstrow, frontrows, all }, tier: { any, [key]: n } or null when the venue has no tiers, quality: { any, top10, top25, top50 } or null when no ticket has
  * a quality score, price: { cheapest, sectionlow, any }, other: { [key]: n } }.
  */
-function countPills(tickets, filters, otherKeys) {
+function countPills(tickets, filters, otherKeys, tierKeys) {
   const count = function (override) { return filterTickets(tickets, Object.assign({}, filters, override)).length; };
-  const counts = { seat: {}, quality: null, price: {}, other: {} };
+  const counts = { seat: {}, tier: null, quality: null, price: {}, other: {} };
   ['firstrow', 'frontrows', 'all'].forEach(function (key) { counts.seat[key] = count({ seat: key }); });
+  if (tierKeys && tierKeys.length) {
+    counts.tier = { any: count({ tier: 'any' }) };
+    tierKeys.forEach(function (key) { counts.tier[key] = count({ tier: key }); });
+  }
   if (tickets.some(function (t) { return typeof t.quality === 'number'; })) {
     counts.quality = {};
     ['any', 'top10', 'top25', 'top50'].forEach(function (key) { counts.quality[key] = count({ quality: key }); });
@@ -295,6 +302,7 @@ function groupByRow(sorted, compare) {
  * One that no ticket can have (a deleted custom badge, another venue's, an attribute not on this list)
  * is ignored. See filterTickets for how they combine.
  *
+ * `options.tierModel` (lib/tiers.js) says which tiers the venue has and `options.tier` which one is chosen ('any' for none).
  * `options.rowConfig` ({ firstRows, frontRows }) says where rows start and how many
  * count as the front (see rowPosition); the default is Row 1 and 5 rows.
  * `options.customBadges` (from compileBadges) are the user's own pattern badges; a
@@ -325,8 +333,11 @@ export function buildSectionGroups(tickets, options) {
 
   annotate(tickets, opts);
 
-  const filters = { search, seat: opts.seat, quality: opts.quality, price: opts.price, other, hide };
-  const counts = countPills(tickets, filters, OTHER_FILTERS.map(function (f) { return f.key; }).concat(Array.from(attributeKeys), customKeys));
+  // A tier the venue does not have (a saved choice from another venue) filters nothing.
+  const tierKeys = opts.tierModel ? opts.tierModel.keys : [];
+  const tier = tierKeys.includes(opts.tier) ? opts.tier : 'any';
+  const filters = { search, seat: opts.seat, tier, quality: opts.quality, price: opts.price, other, hide };
+  const counts = countPills(tickets, filters, OTHER_FILTERS.map(function (f) { return f.key; }).concat(Array.from(attributeKeys), customKeys), tierKeys);
 
   if (!tickets.some(function (t) { return t.section.toLowerCase().includes(search); })) return { groups: [], empty: 'no-sections', counts };
 

@@ -1,4 +1,5 @@
 import { compileBadges } from '../src/lib/custom-badges.js';
+import { buildTierModel } from '../src/lib/tiers.js';
 import { rowRank } from '../src/lib/tickets.js';
 import {
   DEFAULT_ROW_CONFIG,
@@ -1134,5 +1135,71 @@ describe('the rows of VIP packages', () => {
   it('keep the order of a section\'s row\'s own packages by price, then quality', () => {
     const g = group([pkg('BLOCKE', '26', 300, { quality: 0.2 }), pkg('BLOCKE', '26', 250, { quality: 0.1 }), pkg('BLOCKE', '26', 250, { quality: 0.9 })], { sort: 'row' });
     expect(g.rows[0].tickets.map((t) => t.price + '/' + t.quality)).toEqual(['250/0.9', '250/0.1', '300/0.2']);
+  });
+});
+
+describe('tiers (Lower, Middle, Upper)', () => {
+  // A venue with no words: the rows given as the first row of each tier are the tiers (3Arena: Row 21 and Row 33).
+  const rowTiers = buildTierModel({ firstRows: [21, 33] });
+  const tickets = () => [
+    ticket({ section: 'A', row: 21, price: 100 }),
+    ticket({ section: 'A', row: 25, price: 90 }),
+    ticket({ section: 'B', row: 33, price: 80 }),
+    ticket({ section: 'B', row: 40, price: 70 }),
+    ticket({ section: 'PIT', row: 9999, price: 60 }),
+  ];
+  const run = (extra) => buildSectionGroups(tickets(), { rowConfig: { firstRows: [21, 33], frontRows: 5 }, tierModel: rowTiers, ...extra });
+  const names = (result) => result.groups.flatMap((g) => g.tickets.map((t) => g.name + ':' + t.row)).sort();
+
+  it('puts every ticket in the tier its row is in, and standing in none', () => {
+    const { groups } = run({});
+    const byRow = Object.fromEntries(groups.flatMap((g) => g.tickets.map((t) => [t.section + t.row, t.tier])));
+    expect(byRow).toEqual({ A21: 'lower', A25: 'lower', B33: 'upper', B40: 'upper', PIT9999: null });
+  });
+
+  it('shows only the tickets of the tier chosen', () => {
+    expect(names(run({ tier: 'lower' }))).toEqual(['A:21', 'A:25']);
+    expect(names(run({ tier: 'upper' }))).toEqual(['B:33', 'B:40']);
+    expect(names(run({ tier: 'any' }))).toHaveLength(5);
+    expect(names(run({}))).toHaveLength(5); // no tier chosen
+  });
+
+  it('leaves out standing and VIP packages once a tier is chosen (they are in none)', () => {
+    expect(names(run({ tier: 'lower' }))).not.toContain('PIT:9999');
+  });
+
+  it('counts each tier given everything else, as the other pills do', () => {
+    const counts = run({}).counts.tier;
+    expect(counts).toEqual({ any: 5, lower: 2, upper: 2 });
+    expect(run({ seat: 'firstrow' }).counts.tier).toEqual({ any: 2, lower: 1, upper: 1 }); // only the first row of each tier is left
+    expect(run({ search: 'a' }).counts.tier).toEqual({ any: 2, lower: 2, upper: 0 }); // the section search
+  });
+
+  it('works with the other filters: the first row of the lower tier', () => {
+    expect(names(run({ tier: 'lower', seat: 'firstrow' }))).toEqual(['A:21']);
+  });
+
+  it('has no tier counts, and no tier on a ticket, for a venue without tiers', () => {
+    const result = buildSectionGroups(tickets(), { rowConfig: { firstRows: [1], frontRows: 5 } });
+    expect(result.counts.tier).toBeNull();
+    expect(result.groups.flatMap((g) => g.tickets).every((t) => t.tier === null)).toBe(true);
+  });
+
+  it('ignores a tier the venue does not have (a choice saved at another venue): it filters nothing', () => {
+    expect(names(run({ tier: 'middle' }))).toHaveLength(5);
+    expect(names(buildSectionGroups(tickets(), { rowConfig: { firstRows: [1], frontRows: 5 }, tier: 'lower' }))).toHaveLength(5);
+  });
+
+  it('can say the tier from a ticket\'s description, when the venue\'s names say it (the O2 Belfast)', () => {
+    const model = buildTierModel({ firstRows: [1], words: new Set(['lower', 'middle', 'upper']) });
+    const list = [
+      ticket({ section: 'NTHL1', row: 3, description: 'NORTH LOWER TIER' }),
+      ticket({ section: 'NTHM1', row: 14, description: 'NORTH MID TIER' }),
+      ticket({ section: 'NTHU1', row: 20, description: 'NORTH UPPER TIER' }),
+      ticket({ section: 'STAND', row: 9999, description: "STANDING-OVER 14'S ONLY" }),
+    ];
+    const result = buildSectionGroups(list, { tierModel: model, tier: 'middle' });
+    expect(names(result)).toEqual(['NTHM1:14']);
+    expect(buildSectionGroups(list, { tierModel: model }).counts.tier).toEqual({ any: 4, lower: 1, middle: 1, upper: 1 });
   });
 });

@@ -15,6 +15,7 @@ const DEFAULTS = {
   rememberQuantity: true,
   sort: 'row',
   seatFilter: 'all',
+  tierFilter: 'any',
   qualityFilter: 'any',
   priceFilter: 'any',
   badgeFilters: [],
@@ -28,6 +29,20 @@ const DEFAULTS = {
   paneWidth: 380,
   paneOpen: false,
 };
+
+describe('tierFilter (Lower, Middle, Upper...)', () => {
+  it('is any unless it is one of the tiers a venue can have', () => {
+    expect(normalizeSettings({}).tierFilter).toBe('any');
+    ['any', 'lower', 'middle', 'upper', 'tier-1', 'tier-4', 'tier-9'].forEach((v) => expect(normalizeSettings({ tierFilter: v }).tierFilter).toBe(v));
+    ['Lower', 'tier-0', 'tier-10', 'balcony', '', 4, null, [], {}].forEach((v) => expect(normalizeSettings({ tierFilter: v }).tierFilter).toBe('any'));
+  });
+
+  it('is saved under its own key', async () => {
+    await saveSettings({ tierFilter: 'upper' });
+    expect(peekStorage('tierFilter')).toBe('upper');
+    expect((await loadSettings()).tierFilter).toBe('upper');
+  });
+});
 
 describe('rememberQuantity (the quantity chosen on the page is the one to start with next time)', () => {
   it('is on unless it has been switched off, and only a real false switches it off', () => {
@@ -122,7 +137,7 @@ describe('normalizeSettings', () => {
 
   it('keeps valid values', () => {
     const customBadges = [{ id: 'aisle1', label: 'Aisle', icon: '🚶', color: 'blue', pattern: 'aisle' }];
-    const valid = { enabled: false, mapLink: false, autoZoomMap: false, defaultQuantity: 4, rememberQuantity: false, sort: 'price', seatFilter: 'frontrows', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
+    const valid = { enabled: false, mapLink: false, autoZoomMap: false, defaultQuantity: 4, rememberQuantity: false, sort: 'price', seatFilter: 'frontrows', tierFilter: 'middle', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
 

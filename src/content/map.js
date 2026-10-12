@@ -30,6 +30,7 @@ import { LOG_PREFIX } from '../lib/constants.js';
 import { blocksToDim, blockTiers, isSeatedBlock, keyOf, linkBlocks, linkingComplete } from '../lib/map-link.js';
 import { describeData } from '../lib/map-data.js';
 import { evaluateAvailability, seatCounts } from '../lib/map-filters.js';
+import { tierWord } from '../lib/tiers.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const BLOCK_SELECTOR = 'path[data-component="svg__section"]';
@@ -791,6 +792,21 @@ export function createMapLink(options) {
      * Tell it about our list: `sections` = [{ name, tickets }] (all), `visible` = Set of the names that still show tickets
      * after the filters, `matching` = the tickets the filters leave, `ready` = the whole list has loaded.
      */
+    /**
+     * The tiers the venue's map names: { words: Set of 'lower' | 'middle' | 'upper', byBlock: Map(block id -> word) } from its blocks' names
+     * ("NORTH LOWER 1"), or null without the map's geometry or when no block names a tier. See lib/tiers.js.
+     */
+    tierInfo() {
+      const geometry = seatData.geometry;
+      if (!geometry) return null;
+      const byBlock = new Map();
+      geometry.blocks.forEach(function (block) {
+        const word = tierWord(block.name);
+        if (word) byBlock.set(block.id, word);
+      });
+      return byBlock.size ? { words: new Set(byBlock.values()), byBlock } : null;
+    },
+
     /** How many places are on sale by the map's own data ({ all, seats, standing, firstrow, frontrows }, see lib/map-filters.js), or null without it. */
     seatCounts(config) {
       return seatCounts(seatData.availability, config);
@@ -807,6 +823,7 @@ export function createMapLink(options) {
       if (kind === 'seat') f.seat = key;
       else if (kind === 'quality') f.quality = key;
       else if (kind === 'price') f.price = key;
+      else if (kind === 'tier') f.tier = key;
       else if (kind === 'other') {
         f.show = Array.from(new Set((filters.show || []).concat(key)));
         f.hide = (filters.hide || []).filter(function (k) { return k !== key; });

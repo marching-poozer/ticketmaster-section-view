@@ -72,6 +72,8 @@ export function normalizeSettings(raw) {
     sort: SORTS.includes(s.sort) ? s.sort : 'row',
     // The seat and price choices used to be pills among the others in `badgeFilters`: carry those over.
     seatFilter: SEAT_KEYS.includes(s.seatFilter) ? s.seatFilter : legacySeat(legacy),
+    // The tier chosen (Lower, Middle, Upper, Tier 3...): which tiers exist depends on the venue, so a key no venue has is only ignored there.
+    tierFilter: typeof s.tierFilter === 'string' && /^(any|lower|middle|upper|tier-[1-9])$/.test(s.tierFilter) ? s.tierFilter : 'any',
     qualityFilter: QUALITY_KEYS.includes(s.qualityFilter) ? s.qualityFilter : DEFAULT_QUALITY_FILTER,
     priceFilter: PRICE_KEYS.includes(s.priceFilter) ? s.priceFilter : legacyPrice(legacy),
     badgeFilters: showFilters,

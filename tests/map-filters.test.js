@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildAvailability, parseFacets, parseGeometry } from '../src/lib/map-data.js';
 import { evaluateAvailability, filtersActive, judgeable, seatCounts } from '../src/lib/map-filters.js';
+import { buildTierModel, tierWord } from '../src/lib/tiers.js';
 
 // Real excerpts of The O2 Belfast's seat map data: NORTH MIDDLE 3 (s_79: rows M and N, seats on sale in groups of 3 and one on its own),
 // NORTH LOWER 1 (s_5: rows C, F, G, J), EAST LOWER 8 (s_22: rows G-K, aisle seats), WEST UPPER 1 (s_49: one resale seat in row U),
@@ -216,5 +217,61 @@ describe('how many places are on sale, by the map', () => {
 
   it('is null without the map\'s data', () => {
     expect(seatCounts(null, { firstRows: [1], frontRows: 5 })).toBeNull();
+  });
+});
+
+describe('tiers on the map (the O2 Belfast: the blocks are named "NORTH LOWER 1")', () => {
+  const blockTiers = new Map(geometry.blocks.map((b) => [b.id, tierWord(b.name)]).filter(([, word]) => word));
+  const model = buildTierModel({ firstRows: [1], words: new Set(blockTiers.values()), blockTiers });
+
+  it('puts a seat in the tier of its block', () => {
+    const seat = (id) => availability.byBlock.get(id).seats[0];
+    expect(model.ofSeat(seat('s_5'))).toBe('lower'); // NORTH LOWER 1
+    expect(model.ofSeat(seat('s_79'))).toBe('middle'); // NORTH MIDDLE 3
+    expect(model.ofSeat(seat('s_49'))).toBe('upper'); // WEST UPPER 1
+  });
+
+  it('keeps the blocks that have seats on sale in the tier chosen, and no other, listed or not', () => {
+    const tier = (key) => blocksOf(evaluate({ tier: key, tierOf: model.ofSeat, quantity: 1 }));
+    expect(tier('lower')).toEqual(['s_22', 's_5']);
+    expect(tier('middle')).toEqual(['s_78', 's_79']);
+    expect(tier('upper')).toEqual(['s_49']);
+  });
+
+  it('leaves standing out once a tier is chosen (it is in none), and has it back with Any', () => {
+    expect(evaluate({ tier: 'lower', tierOf: model.ofSeat, quantity: 1 }).blocks.has('s_112')).toBe(false);
+    expect(evaluate({ tier: 'any', tierOf: model.ofSeat, quantity: 1 }).blocks.has('s_112')).toBe(true);
+  });
+
+  it('works with the other filters: the middle tier, pairs, first row where the middle tier starts at M', () => {
+    const result = evaluate({ tier: 'middle', tierOf: model.ofSeat, seat: 'firstrow', firstRows: ['A', 'M', 'S'], quantity: 2 });
+    expect(blocksOf(result)).toEqual(['s_79']);
+  });
+
+  it('is a filter that is on, and one the map can judge', () => {
+    expect(filtersActive({ ...none, tier: 'upper' })).toBe(true);
+    expect(filtersActive({ ...none, tier: 'any' })).toBe(false);
+    expect(judgeable({ ...none, tier: 'upper', tierOf: model.ofSeat }, availability)).toMatchObject({ tier: 'upper', exact: true });
+  });
+
+  it('ignores a tier it cannot place seats in, and says it is not exact', () => {
+    const plain = evaluate({ quantity: 1 });
+    const ignored = evaluate({ tier: 'upper', quantity: 1 }); // (no tierOf)
+    expect(blocksOf(ignored)).toEqual(blocksOf(plain));
+    expect(ignored.exact).toBe(false);
+  });
+
+  it('counts the seats on sale in each tier, whatever is filtered', () => {
+    const counts = seatCounts(availability, { firstRows: [1], frontRows: 5, tierOf: model.ofSeat, tierKeys: model.keys });
+    expect(counts.tiers).toEqual({ lower: 37, middle: 12, upper: 1 }); // NORTH LOWER 1 and EAST LOWER 8; NORTH MIDDLE 3 and 4; WEST UPPER 1
+    expect(counts.seats).toBe(50);
+    expect(seatCounts(availability, { firstRows: [1], frontRows: 5 }).tiers).toEqual({});
+  });
+
+  it('counts by the rows when the user gave the tiers\' first rows: the venue with no words', () => {
+    const rows = buildTierModel({ firstRows: ['A', 'L', 'S'] });
+    const counts = seatCounts(availability, { firstRows: ['A', 'L', 'S'], frontRows: 5, tierOf: rows.ofSeat, tierKeys: rows.keys });
+    // rows C, F, G, J, K (lower: A-K) = 10 + 27; rows M and N (middle: L-R) = 10 + 2; row U (upper: S-Y) = 1
+    expect(counts.tiers).toEqual({ lower: 37, middle: 12, upper: 1 });
   });
 });

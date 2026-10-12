@@ -8,11 +8,20 @@ import { attributesOf } from '../lib/quickpicks.js';
 import { MSG } from '../lib/protocol.js';
 import { sectionsOf } from '../lib/map-link.js';
 import { buildSectionGroups } from '../lib/sections.js';
+import { buildTierModel, wordsIn } from '../lib/tiers.js';
 import { saveSettings } from '../lib/settings.js';
 import { uiScale } from '../lib/size.js';
 import { deleteVenue, loadVenue, normalizeVenue, saveVenue, venueKey } from '../lib/venues.js';
 import { createPageReader } from './page-reader.js';
 import { createView } from './view.js';
+
+/** What the counts on the Tier pills are when they come from the venue's seat map. */
+function tierCountNotes(counts, model, quantity) {
+  const why = ' (the venue\'s seat map: every one on sale, whatever the quantity or other filters; Ticketmaster\'s list holds only what it offers for ' + quantity + ' ticket' + (quantity === 1 ? '' : 's') + ')';
+  const notes = { any: counts.all + ' places on sale' + why };
+  model.tiers.forEach(function (tier) { notes[tier.key] = (counts.tiers[tier.key] || 0) + ' seats on sale in the ' + tier.label.toLowerCase() + ' tier' + why; });
+  return notes;
+}
 
 /** What the Seats pills' counts mean when they come from the venue's seat map. */
 function seatCountNotes(counts, quantity) {
@@ -53,6 +62,7 @@ function noMatchesMessage(info) {
 
 /** `readerDeps` is for tests (see createPageReader). */
 /**
+ * `mapTiers()` -> { words: Set of tier words, byBlock: Map(block id -> tier word) } or null: the tiers the venue's seat map names (lib/tiers.js).
  * `seatCounts(rowConfig)` -> { all, seats, standing, firstrow, frontrows } or null: how many places are on sale by the venue's own seat map. The Seats pills
  * show those (they do not depend on any filter, nor on what the list happens to hold); without them the pills count the list's tickets.
  * `onSections({ sections, visible, matching, standingOnly, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
@@ -60,7 +70,7 @@ function noMatchesMessage(info) {
  * `onMapReport()` -> a short message: the "Map report" button was pressed (see display.js);
  * `onTicketHover(ticket | null)` likewise for a ticket; `onShowSection(name)` / `onShowTicket(ticket)`: its "Show on map" button was pressed.
  */
-export function createApp({ settings, version, readerDeps, seatCounts, onSections, onSectionHover, onTicketHover, onShowSection, onShowTicket, onMapReport }) {
+export function createApp({ settings, version, readerDeps, seatCounts, mapTiers, onSections, onSectionHover, onTicketHover, onShowSection, onShowTicket, onMapReport }) {
   // Behaviour that depends on where the view is hosted; see configure().
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
@@ -78,6 +88,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, onSection
   const state = {
     sort: settings.sort,
     seat: settings.seatFilter || 'all', // 'firstrow' | 'frontrows' | 'all'
+    tier: settings.tierFilter || 'any', // 'lower' | 'middle' | 'upper' | 'tier-N' | 'any' (a tier the venue does not have filters nothing)
     quality: settings.qualityFilter || 'any', // 'top10' | 'top25' | 'top50' | 'any'
     price: settings.priceFilter || 'any', // 'cheapest' | 'sectionlow' | 'any'
     badgeFilters: new Set(settings.badgeFilters), // the "other" pills that show only their tickets: resale, attributes, the user's own badges
@@ -110,6 +121,12 @@ export function createApp({ settings, version, readerDeps, seatCounts, onSection
       onSeatSelect(key) {
         state.seat = key;
         view.setSeat(key);
+        saveFilters();
+        render();
+      },
+      onTierSelect(key) {
+        state.tier = key;
+        view.setTier(key);
         saveFilters();
         render();
       },
@@ -204,6 +221,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, onSection
   view.setAutoZoom(settings.autoZoomMap);
   view.setBadgeFilters(state.badgeFilters, state.hideFilters);
   view.setSeat(state.seat);
+  view.setTier(state.tier);
   view.setFrontRows(rowConfig().frontRows);
   view.setQuality(state.quality);
   view.setPrice(state.price);
@@ -214,6 +232,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, onSection
   function saveFilters() {
     saveSettings({
       seatFilter: state.seat,
+      tierFilter: state.tier,
       qualityFilter: state.quality,
       priceFilter: state.price,
       badgeFilters: Array.from(state.badgeFilters),
@@ -311,11 +330,23 @@ export function createApp({ settings, version, readerDeps, seatCounts, onSection
       return;
     }
 
+    // The venue's tiers: the rows the user gave as the first row of each tier, else the tier words the list and the map use (lib/tiers.js).
+    const onMap = mapTiers ? mapTiers() : null;
+    const words = wordsIn(snapshot.tickets.map(function (t) { return t.description; }));
+    if (onMap) onMap.words.forEach(function (word) { words.add(word); });
+    const tierModel = buildTierModel({ firstRows: rowConfig().firstRows, words, blockTiers: onMap ? onMap.byBlock : null });
+    view.setTiers(tierModel ? tierModel.tiers : []);
+    const tier = tierModel && tierModel.keys.includes(state.tier) ? state.tier : 'any'; // a tier this venue does not have is only ignored
+    view.setTier(tier);
+
     // buildSectionGroups annotates tickets in place; keep the snapshot pristine.
-    const result = buildSectionGroups(snapshot.tickets.map(function (t) { return Object.assign({}, t); }), Object.assign({ rowConfig: rowConfig(), customBadges }, state));
-    const fromMap = seatCounts ? seatCounts(rowConfig()) : null;
+    const result = buildSectionGroups(snapshot.tickets.map(function (t) { return Object.assign({}, t); }), Object.assign({ rowConfig: rowConfig(), customBadges, tierModel }, state));
+    const tierOf = tierModel ? tierModel.ofSeat : null;
+    const fromMap = seatCounts ? seatCounts(Object.assign({}, rowConfig(), { tierOf, tierKeys: tierModel ? tierModel.keys : [] })) : null;
     if (fromMap) result.counts.seat = { all: fromMap.all, firstrow: fromMap.firstrow, frontrows: fromMap.frontrows };
+    if (fromMap && tierModel) result.counts.tier = Object.assign({ any: fromMap.all }, fromMap.tiers);
     view.setSeatCountNotes(fromMap ? seatCountNotes(fromMap, snapshot.qty) : null);
+    view.setTierCountNotes(fromMap && tierModel ? tierCountNotes(fromMap, tierModel, snapshot.qty) : null);
     view.setCounts(result.counts);
     if (onSections) {
       onSections({
@@ -326,6 +357,8 @@ export function createApp({ settings, version, readerDeps, seatCounts, onSection
         // what the list is filtered by, for the map to judge its own seats by (lib/map-filters.js)
         filters: {
           seat: state.seat,
+          tier,
+          tierOf,
           firstRows: rowConfig().firstRows,
           frontRows: rowConfig().frontRows,
           quality: state.quality,
@@ -394,6 +427,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, onSection
         source: snapshot ? (snapshot.viaApi ? 'api' : 'scroll') : null,
         filters: {
           seat: state.seat,
+          tier: state.tier,
           quality: state.quality,
           price: state.price,
           showOnly: Array.from(state.badgeFilters),
