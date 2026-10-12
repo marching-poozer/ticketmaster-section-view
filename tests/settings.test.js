@@ -13,6 +13,7 @@ const DEFAULTS = {
   autoZoomMap: true,
   defaultQuantity: 0,
   rememberQuantity: true,
+  showCounts: false,
   sort: 'row',
   seatFilter: 'all',
   tierFilter: 'any',
@@ -41,6 +42,20 @@ describe('tierFilter (Lower, Middle, Upper...)', () => {
     await saveSettings({ tierFilter: 'upper' });
     expect(peekStorage('tierFilter')).toBe('upper');
     expect((await loadSettings()).tierFilter).toBe('upper');
+  });
+});
+
+describe('showCounts (the counts on the filter pills)', () => {
+  it('is off unless it is exactly true', () => {
+    expect(normalizeSettings({}).showCounts).toBe(false);
+    expect(normalizeSettings({ showCounts: true }).showCounts).toBe(true);
+    ['yes', 1, null, 'true', [], {}].forEach((v) => expect(normalizeSettings({ showCounts: v }).showCounts).toBe(false));
+  });
+
+  it('is stored on its own', async () => {
+    await saveSettings({ showCounts: true });
+    expect(peekStorage('showCounts')).toBe(true);
+    expect((await loadSettings()).showCounts).toBe(true);
   });
 });
 
@@ -137,7 +152,7 @@ describe('normalizeSettings', () => {
 
   it('keeps valid values', () => {
     const customBadges = [{ id: 'aisle1', label: 'Aisle', icon: '🚶', color: 'blue', pattern: 'aisle' }];
-    const valid = { enabled: false, mapLink: false, autoZoomMap: false, defaultQuantity: 4, rememberQuantity: false, sort: 'price', seatFilter: 'frontrows', tierFilter: 'middle', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
+    const valid = { enabled: false, mapLink: false, autoZoomMap: false, defaultQuantity: 4, rememberQuantity: false, showCounts: true, sort: 'price', seatFilter: 'frontrows', tierFilter: 'middle', qualityFilter: 'top25', priceFilter: 'sectionlow', badgeFilters: ['resale', 'custom:aisle1'], hideFilters: ['attr:aisle'], customBadges, displayMode: 'pane', uiSize: 'comfort', loadMode: 'scroll', frontRows: 8, paneSide: 'left', paneWidth: 500, paneOpen: true };
     expect(normalizeSettings(valid)).toEqual(valid);
   });
 

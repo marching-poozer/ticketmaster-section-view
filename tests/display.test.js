@@ -446,7 +446,7 @@ describe('the venue\'s seat map on the page', () => {
 
   it('when the filters leave nothing, says the map has blocks the list lacks, outlines them, and keeps the pills usable', async () => {
     pageWithMap();
-    await start({ loadMode: 'scroll', seatFilter: 'firstrow' }); // the list has no tickets in a first row
+    await start({ loadMode: 'scroll', seatFilter: 'firstrow', showCounts: true }); // the list has no tickets in a first row
     await settle(1200);
     const shadow = () => inlineHost().shadowRoot;
     expect(shadow().querySelector('.message').textContent).toBe('Ticketmaster\'s list returned no tickets that match the selected filters, but its map shows 1 block with tickets on sale that the list leaves out. It may match: please check the outlined block on the map.');

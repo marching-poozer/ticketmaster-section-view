@@ -83,6 +83,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, mapTiers,
   const options = { scrollToClicked: true, onShowOriginal: null, followPageSort: false };
   let uiSize = settings.uiSize;
   let appliedScale = null;
+  let showCounts = settings.showCounts === true; // counts on the filter pills (off until it is decided what they should count)
   let mapUnlisted = null; // what the venue's map says that the list cannot (see setMapUnlisted)
   let lastEmpty = null; // why the list was empty at the last render ('no-matches', 'no-sections'), or null
   let defaultFrontRows = settings.frontRows;
@@ -227,6 +228,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, mapTiers,
   );
   view.setSort(state.sort);
   view.setAutoZoom(settings.autoZoomMap);
+  view.setShowCounts(showCounts);
   view.setBadgeFilters(state.badgeFilters, state.hideFilters);
   view.setSeat(state.seat);
   view.setTier(state.tier);
@@ -322,7 +324,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, mapTiers,
       return {
         key: a.key,
         text: a.text,
-        title: 'Attribute from Ticketmaster: ' + a.names.map(function (n) { return '"' + n + '"'; }).join(', ') + ' — on ' + a.count + (a.count === 1 ? ' ticket' : ' tickets'),
+        title: 'Attribute from Ticketmaster: ' + a.names.map(function (n) { return '"' + n + '"'; }).join(', ') + (showCounts ? ' — on ' + a.count + (a.count === 1 ? ' ticket' : ' tickets') : ''),
       };
     });
     syncBadges();
@@ -504,6 +506,11 @@ export function createApp({ settings, version, readerDeps, seatCounts, mapTiers,
       this.setUiSize(next.uiSize);
       if (typeof next.autoZoomMap === 'boolean') view.setAutoZoom(next.autoZoomMap);
       if (next.loadMode) reader.setLoadMode(next.loadMode);
+      if (typeof next.showCounts === 'boolean' && next.showCounts !== showCounts) {
+        showCounts = next.showCounts;
+        view.setShowCounts(showCounts);
+        render(); // (the attribute pills' tooltips carry a count too)
+      }
       if (typeof next.rememberQuantity === 'boolean') reader.setRememberQuantity(next.rememberQuantity);
       if (typeof next.defaultQuantity === 'number') reader.setDefaultQuantity(next.defaultQuantity);
       const badgesChanged = JSON.stringify(next.customBadges || []) !== JSON.stringify(globalBadges);

@@ -233,6 +233,7 @@ export function createView(handlers, version) {
 
   // --- filter pills: Seats and Price are one choice each, Other toggles ---------
   let counts = null; // what each pill would show, from the app (see buildSectionGroups)
+  let showCounts = true; // counts on the pills (the app turns them off by default: see setShowCounts)
   let maybeMore = null; // (kind, key) => does the venue's map show blocks that may have more of what a pill counts as none? See setMaybeMore
   const MAYBE_MORE_TITLE = 'None in Ticketmaster\'s list, but its map shows blocks the list leaves out: there may be some.';
 
@@ -246,6 +247,16 @@ export function createView(handlers, version) {
   function renderPill(pill, count, kind, key) {
     const label = pill.getAttribute('data-label');
     const shown = pill.getAttribute('data-state') === 'hide' ? '🚫 ' + label.replace(LEADING_ICON, '') : label;
+    if (!showCounts) {
+      // No counts: the label alone, not dimmed for having none, and nothing said about counts in its tooltip
+      pill.textContent = shown;
+      pill.classList.remove('zero');
+      if (pill.hasAttribute('data-maybe-more')) {
+        pill.removeAttribute('data-maybe-more');
+        pill.title = pill.title.split('\n').filter(function (line) { return line !== MAYBE_MORE_TITLE; }).join('\n');
+      }
+      return;
+    }
     // None in the list, but the map shows blocks the list leaves out: "0+", and not dimmed (a pill that says none is a pill nobody uses)
     const maybe = count === 0 && maybeMore !== null && maybeMore(kind, key) === true;
     pill.textContent = typeof count === 'number' ? shown + ' (' + count + (maybe ? '+' : '') + ')' : shown;
@@ -316,7 +327,7 @@ export function createView(handlers, version) {
   /** The Seats pills' tooltips: what each is, then (when the map gave the counts) what its count is. */
   function applySeatTitles() {
     seatGroup.pills.forEach(function (pill) {
-      pill.title = [pill.getAttribute('data-base-title'), seatNotes ? seatNotes[pill.getAttribute('data-seat')] : null].filter(Boolean).join('\n');
+      pill.title = [pill.getAttribute('data-base-title'), showCounts && seatNotes ? seatNotes[pill.getAttribute('data-seat')] : null].filter(Boolean).join('\n');
     });
   }
 
@@ -327,7 +338,7 @@ export function createView(handlers, version) {
   let tierNotes = null; // { [key]: a sentence }: what the counts on the Tier pills are, when the venue's map gave them
   function applyTierTitles() {
     tierGroup.pills.forEach(function (pill) {
-      pill.title = tierNotes ? tierNotes[pill.getAttribute('data-tier')] || '' : '';
+      pill.title = showCounts && tierNotes ? tierNotes[pill.getAttribute('data-tier')] || '' : '';
     });
   }
   const qualityGroup = choiceGroup('Quality', 'quality', QUALITY_FILTERS, function (key) { handlers.onQualitySelect(key); });
@@ -716,6 +727,23 @@ export function createView(handlers, version) {
     setTierCountNotes(notes) {
       tierNotes = notes || null;
       applyTierTitles();
+    },
+
+    /**
+     * Counts on the pills (`Any (341)`), on or off. Off, a pill is its label alone: no number, not dimmed for having none, no "0+", and no
+     * tooltip about what a count is. The counts themselves are still worked out and kept, so turning them on again needs nothing.
+     */
+    setShowCounts(on) {
+      const next = on !== false;
+      if (next === showCounts) return;
+      showCounts = next;
+      applySeatTitles();
+      applyTierTitles();
+      countChoices(seatGroup, 'seat', counts && counts.seat);
+      countChoices(tierGroup, 'tier', counts && counts.tier);
+      countChoices(qualityGroup, 'quality', counts && counts.quality);
+      countChoices(priceGroup, 'price', counts && counts.price);
+      syncPills();
     },
 
     /** What the counts on the Seats pills are ({ all, firstrow, frontrows }: a sentence each), when the venue's map gave them; null when it did not. */

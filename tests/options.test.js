@@ -338,6 +338,30 @@ describe('options page', () => {
   });
 });
 
+describe('counts on the filter pills', () => {
+  const box = () => document.getElementById('show-counts');
+
+  it('are off by default, and shows that they were switched on', async () => {
+    await start();
+    expect(box().checked).toBe(false);
+    page.destroy();
+    page = null;
+    await start({ showCounts: true });
+    expect(box().checked).toBe(true);
+  });
+
+  it('is saved as it changes, and follows a change made elsewhere', async () => {
+    await start();
+    box().checked = true;
+    box().dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    expect(peekStorage('showCounts')).toBe(true);
+    await saveSettings({ showCounts: false });
+    await flush();
+    expect(box().checked).toBe(false);
+  });
+});
+
 describe('front rows (the global default)', () => {
   const input = () => document.getElementById('front-rows');
   const type = (value) => {

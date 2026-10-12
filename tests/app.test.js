@@ -11,7 +11,7 @@ let app;
 
 function make(settings = {}) {
   // Most of these tests are about the cards on the page, which is what scrolling mode reads (the API has its own tests).
-  app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', ...settings }), version: '1.2.3' });
+  app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true, ...settings }), version: '1.2.3' });
   document.body.append(app.root);
   return app;
 }
@@ -331,7 +331,7 @@ describe('controls', () => {
       sampleCards();
       make({ frontRows: 5 });
       app.start();
-      app.updateSettings(normalizeSettings({ frontRows: 8 }));
+      app.updateSettings(normalizeSettings({ showCounts: true, frontRows: 8 }));
       expect(label()).toBe('⭐ First 8 Rows (1)');
     });
 
@@ -378,8 +378,52 @@ describe('controls', () => {
       expect(sectionNames()).toEqual(['Section 101']); // row 3 is in the first 3
       await flush();
       expect(peekStorage('seatFilter')).toBe('frontrows');
-      app.updateSettings(normalizeSettings({ frontRows: 2 })); // now row 3 is not a front row
+      app.updateSettings(normalizeSettings({ showCounts: true, frontRows: 2 })); // now row 3 is not a front row
       expect(q('.sv-content').textContent).toBe('No tickets match the selected filters.');
+    });
+  });
+
+  describe('counts on the pills, switched off (the default)', () => {
+    const labels = () => qa('.pills .pill, [data-seat], [data-price], [data-badge]').map((p) => p.textContent);
+    const hidden = () => {
+      sampleCards();
+      app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3' });
+      document.body.append(app.root);
+      app.start();
+    };
+
+    it('shows the labels alone, on every kind of pill', () => {
+      hidden();
+      expect(qa('[data-seat]').map((p) => p.textContent)).toEqual(['Any', '🥇 1st Row', '⭐ First 5 Rows']);
+      expect(qa('[data-price]').map((p) => p.textContent)).toEqual(['Any', '🔥 Cheapest', '💡 Section Low']);
+      expect(qa('[data-badge]').map((p) => p.textContent)).toEqual(['🧍 Standing', '🔄 Resale', '👑 VIP Packages']);
+      expect(labels().some((text) => /\(\d+\+?\)/.test(text))).toBe(false);
+    });
+
+    it('does not dim a pill for having none, nor say "0+"', () => {
+      hidden();
+      expect(q('[data-seat="firstrow"]').classList.contains('zero')).toBe(false);
+      expect(q('[data-badge="vip"]').classList.contains('zero')).toBe(false);
+    });
+
+    it('keeps them off as the choices change, and ignores the map\'s counts', () => {
+      sampleCards();
+      app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => ({ all: 872, seats: 50, standing: 822, firstrow: 7, frontrows: 31 }) });
+      document.body.append(app.root);
+      app.start();
+      q('[data-badge="standing"]').click();
+      expect(qa('[data-seat]').map((p) => p.textContent)).toEqual(['Any', '🥇 1st Row', '⭐ First 5 Rows']);
+      expect(q('[data-seat="all"]').title).not.toMatch(/seating options|on sale/);
+    });
+
+    it('comes on, and goes off again, when the setting changes', () => {
+      hidden();
+      app.updateSettings(normalizeSettings({ loadMode: 'scroll', showCounts: true }));
+      expect(qa('[data-seat]').map((p) => p.textContent)).toEqual(['Any (4)', '🥇 1st Row (0)', '⭐ First 5 Rows (1)']);
+      expect(q('[data-seat="firstrow"]').classList.contains('zero')).toBe(true);
+      app.updateSettings(normalizeSettings({ loadMode: 'scroll', showCounts: false }));
+      expect(qa('[data-seat]').map((p) => p.textContent)).toEqual(['Any', '🥇 1st Row', '⭐ First 5 Rows']);
+      expect(q('[data-seat="firstrow"]').classList.contains('zero')).toBe(false);
     });
   });
 
@@ -576,7 +620,7 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
 
   it('are the seats on sale by the map, not the tickets the list holds', () => {
     sampleCards();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => mapCounts });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', seatCounts: () => mapCounts });
     document.body.append(app.root);
     app.start();
     expect(seatPills()).toEqual(['Any (872)', '🥇 1st Row (7)', '⭐ First 5 Rows (31)']);
@@ -584,7 +628,7 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
 
   it('do not change as other filters are applied (the list\'s own would)', () => {
     sampleCards();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => mapCounts });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', seatCounts: () => mapCounts });
     document.body.append(app.root);
     app.start();
     const before = seatPills();
@@ -598,7 +642,7 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
   it('are asked for with the venue\'s own tiers and how many rows are the front', () => {
     sampleCards();
     const seatCounts = vi.fn(() => mapCounts);
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', frontRows: 3 }), version: '1.2.3', seatCounts });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true, frontRows: 3 }), version: '1.2.3', seatCounts });
     document.body.append(app.root);
     app.start();
     expect(seatCounts).toHaveBeenCalledWith(expect.objectContaining({ firstRows: [1], frontRows: 3 }));
@@ -606,7 +650,7 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
 
   it('say on hover what the counts are, and how they differ from the list\'s', () => {
     sampleCards();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => mapCounts });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', seatCounts: () => mapCounts });
     document.body.append(app.root);
     app.start();
     const titles = Object.fromEntries(qa('[data-seat]').map((p) => [p.getAttribute('data-seat'), p.title]));
@@ -620,7 +664,7 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
     sampleCards();
     document.body.insertAdjacentHTML('afterbegin', '<div role="spinbutton" aria-valuenow="2"></div>'); // Ticketmaster's quantity stepper: 2 tickets
     const seatCounts = vi.fn(() => ({ all: 432, seatOptions: 21, standingOptions: 411, seats: 50, standing: 822, firstrow: 2, frontrows: 9, tiers: {} }));
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', seatCounts });
     document.body.append(app.root);
     app.start();
     expect(seatCounts).toHaveBeenCalledWith(expect.objectContaining({ quantity: 2 }));
@@ -632,11 +676,11 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
 
   it('are the list\'s tickets, as before, when the map has nothing to say', () => {
     sampleCards();
-    const plain = (() => { app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3' }); document.body.append(app.root); app.start(); return seatPills(); })();
+    const plain = (() => { app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3' }); document.body.append(app.root); app.start(); return seatPills(); })();
     app.destroy && app.destroy();
     document.body.innerHTML = '';
     sampleCards();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts: () => null });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', seatCounts: () => null });
     document.body.append(app.root);
     app.start();
     expect(seatPills()).toEqual(plain);
@@ -653,7 +697,7 @@ describe('the tier choice (Lower | Middle | Upper)', () => {
     document.body.insertAdjacentHTML('afterbegin', venueHeader);
     sampleCards();
     await saveVenue('197033', { name: '3Arena, Dublin', ...venue });
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', ...extra.settings }), version: '1.2.3', ...extra.options });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true, ...extra.settings }), version: '1.2.3', ...extra.options });
     document.body.append(app.root);
     app.start();
     await flush();
@@ -754,14 +798,14 @@ describe('the ticket quantity', () => {
 
   it('asks the page for the quantity saved, and to report what the user chooses on it, when remembering is on', () => {
     const qd = fakeQuantity();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', defaultQuantity: 4 }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true, defaultQuantity: 4 }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
     expect(qd.setDesired).toHaveBeenCalledWith(4);
     expect(qd.setRemember).toHaveBeenCalledWith(true, expect.any(Function));
   });
 
   it('saves a quantity the user chooses on the page as the one to ask for next time', async () => {
     const qd = fakeQuantity();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
     const choose = qd.setRemember.mock.calls[0][1];
     choose(5);
     await flush();
@@ -770,15 +814,15 @@ describe('the ticket quantity', () => {
 
   it('does not report choices when remembering is off', () => {
     const qd = fakeQuantity();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', rememberQuantity: false, defaultQuantity: 3 }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true, rememberQuantity: false, defaultQuantity: 3 }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
     expect(qd.setRemember).toHaveBeenCalledWith(false, expect.any(Function));
     expect(qd.setDesired).toHaveBeenCalledWith(3);
   });
 
   it('follows the settings when they change (the options page, or another page that saved a choice)', () => {
     const qd = fakeQuantity();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
-    app.updateSettings(normalizeSettings({ loadMode: 'scroll', defaultQuantity: 6, rememberQuantity: false }));
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', readerDeps: { quantityDefault: qd } });
+    app.updateSettings(normalizeSettings({ loadMode: 'scroll', showCounts: true, defaultQuantity: 6, rememberQuantity: false }));
     expect(qd.setDesired).toHaveBeenLastCalledWith(6);
     expect(qd.setRemember).toHaveBeenLastCalledWith(false);
   });
@@ -789,7 +833,7 @@ describe('the venue\'s seat map', () => {
   function makeMapped(settings = {}) {
     const onSections = vi.fn();
     const onSectionHover = vi.fn();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', ...settings }), version: '1.2.3', onSections, onSectionHover });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true, ...settings }), version: '1.2.3', onSections, onSectionHover });
     document.body.append(app.root);
     return { onSections, onSectionHover };
   }
@@ -979,7 +1023,7 @@ describe('the venue\'s seat map', () => {
   it('tells the map when the mouse goes onto a ticket, with the ticket, and off it', () => {
     sampleCards();
     const onTicketHover = vi.fn();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', onTicketHover });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true }), version: '1.2.3', onTicketHover });
     document.body.append(app.root);
     app.start();
     app.openSection('101');
@@ -1057,7 +1101,7 @@ describe('the venue\'s seat map', () => {
     sampleCards();
     const onShowSection = vi.fn();
     const onShowTicket = vi.fn();
-    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', autoZoomMap: false }), version: '1.2.3', onShowSection, onShowTicket });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll', showCounts: true, autoZoomMap: false }), version: '1.2.3', onShowSection, onShowTicket });
     document.body.append(app.root);
     app.start();
     app.setMapAvailable(true);
@@ -1250,7 +1294,7 @@ describe('tickets read from the list API', () => {
     addCards({ section: 'BLOCKE', row: 23, price: 94.8 });
     const state = { phase: 'ready', signature: 's', qty: 1, loaded: picks.length, total: picks.length, tickets: [], picks, currency: '', error: null };
     const apiSource = { start: vi.fn(), stop: vi.fn(), reload: vi.fn(), state: () => state };
-    app = createApp({ settings: normalizeSettings({ loadMode: 'api', ...settings }), version: '1.2.3', readerDeps: { apiSource } });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'api', showCounts: true, ...settings }), version: '1.2.3', readerDeps: { apiSource } });
     document.body.append(app.root);
     app.start();
     return apiSource;
@@ -1272,7 +1316,7 @@ describe('tickets read from the list API', () => {
     addCards({ section: 'BLOCKE', row: 23, price: 94.8 });
     const state = { phase: 'loading', signature: 's', qty: 1, loaded: 20, total: 84, tickets: [], picks: [], partial: [], currency: '', error: null };
     const apiSource = { start: vi.fn(), stop: vi.fn(), reload: vi.fn(), state: () => state };
-    app = createApp({ settings: normalizeSettings({ loadMode: 'api' }), version: '1.2.3', readerDeps: { apiSource } });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'api', showCounts: true }), version: '1.2.3', readerDeps: { apiSource } });
     document.body.append(app.root);
     app.start();
     expect(q('.status').dataset.state).toBe('loading');
@@ -1285,7 +1329,7 @@ describe('tickets read from the list API', () => {
     addCards({ section: 'BLOCKE', row: 23, price: 94.8 });
     const state = { phase: 'failed', signature: 's', qty: 1, loaded: 0, total: 0, tickets: [], picks: [], partial: [], currency: '', error: 'HTTP 403' };
     const apiSource = { start: vi.fn(), stop: vi.fn(), reload: vi.fn(), state: () => state };
-    app = createApp({ settings: normalizeSettings({ loadMode: 'api' }), version: '1.2.3', readerDeps: { apiSource } });
+    app = createApp({ settings: normalizeSettings({ loadMode: 'api', showCounts: true }), version: '1.2.3', readerDeps: { apiSource } });
     document.body.append(app.root);
     app.start();
     expect(q('.status').textContent).toBe('✓ All 1 Loaded (Scraping)');
@@ -1310,6 +1354,14 @@ describe('tickets read from the list API', () => {
     expect(pills[1].title).toBe('Attribute from Ticketmaster: "aisle" — on 2 tickets\nClick to show only these tickets');
     expect(pills[2].title).toBe('Attribute from Ticketmaster: "restrictedView", "Restricted_View" — on 2 tickets\nClick to show only these tickets');
     expect(pills[3].title).toBe('Attribute from Ticketmaster: "wheelchair" — on 1 ticket\nClick to show only these tickets');
+  });
+
+  it('says nothing of counts, on an attribute pill or in its tooltip, with counts switched off', () => {
+    makeApiApp([pick(0, ['aisle']), pick(1, ['restrictedView', 'aisle']), pick(2, ['Restricted_View'])], { showCounts: false });
+    const pills = qa('.pill.custom');
+    expect(pills.map((p) => p.textContent)).toEqual(['🚶 Aisle', '🔹 Restricted view']);
+    expect(pills[0].title).toBe('Attribute from Ticketmaster: "aisle"\nClick to show only these tickets');
+    expect(qa('[data-quality]').every((p) => !/\(\d+\)/.test(p.textContent))).toBe(true);
   });
 
   describe('the quality choice', () => {
@@ -1387,7 +1439,7 @@ describe('tickets read from the list API', () => {
 
   it('changes how it loads when the setting changes', () => {
     const api = makeApiApp([pick(0)]);
-    app.updateSettings(normalizeSettings({ loadMode: 'scroll' }));
+    app.updateSettings(normalizeSettings({ loadMode: 'scroll', showCounts: true }));
     expect(api.stop).toHaveBeenCalled();
   });
 });
@@ -1495,13 +1547,13 @@ describe('custom badges', () => {
     page();
     make();
     app.start();
-    app.updateSettings(normalizeSettings({ customBadges: [aisle] }));
+    app.updateSettings(normalizeSettings({ showCounts: true, customBadges: [aisle] }));
     expect(badgesOf('Row 23')).toContain('🚶 Aisle');
 
-    app.updateSettings(normalizeSettings({ customBadges: [{ ...aisle, label: 'Aisle seat' }] }));
+    app.updateSettings(normalizeSettings({ showCounts: true, customBadges: [{ ...aisle, label: 'Aisle seat' }] }));
     expect(qa('.pill.custom').map((p) => p.textContent)).toEqual(['🚶 Aisle seat (1)']);
 
-    app.updateSettings(normalizeSettings({ customBadges: [] }));
+    app.updateSettings(normalizeSettings({ showCounts: true, customBadges: [] }));
     expect(qa('.pill.custom')).toHaveLength(0);
     expect(badgesOf('Row 23')).not.toContain('🚶 Aisle');
   });
@@ -1714,7 +1766,7 @@ describe('venue settings', () => {
     await flush();
     expect(rowBadge(23)).toEqual([]); // global default 2: Row 23 is the 3rd
 
-    app.updateSettings(normalizeSettings({ frontRows: 3 }));
+    app.updateSettings(normalizeSettings({ showCounts: true, frontRows: 3 }));
     expect(rowBadge(23)).toEqual(['⭐ 3rd Row']);
 
     app.handleStorageChange({ 'venue:197033': { newValue: { firstRows: [21, 33], frontRows: 1 } } });
@@ -1729,7 +1781,7 @@ describe('venue settings', () => {
     app.start();
     await flush();
     expect(q('.venue-input[aria-label="Front rows"]').placeholder).toBe('7');
-    app.updateSettings(normalizeSettings({ frontRows: 9 }));
+    app.updateSettings(normalizeSettings({ showCounts: true, frontRows: 9 }));
     expect(q('.venue-input[aria-label="Front rows"]').placeholder).toBe('9');
   });
 
