@@ -15,22 +15,29 @@ import { deleteVenue, loadVenue, normalizeVenue, saveVenue, venueKey } from '../
 import { createPageReader } from './page-reader.js';
 import { createView } from './view.js';
 
-/** What the counts on the Tier pills are when they come from the venue's seat map. */
+/** What the counts on the Seats and Tier pills mean when they come from the venue's seat map. */
+function mapCountWhy(quantity) {
+  return quantity === 1
+    ? ' (the venue\'s seat map: every seat on sale, whatever the other filters; Ticketmaster\'s list holds only what it offers)'
+    : ' (the venue\'s seat map: groups of ' + quantity + ' neighbouring seats in a row, whatever the other filters; Ticketmaster\'s list holds only what it offers for ' + quantity + ' tickets)';
+}
+
 function tierCountNotes(counts, model, quantity) {
-  const why = ' (the venue\'s seat map: every one on sale, whatever the quantity or other filters; Ticketmaster\'s list holds only what it offers for ' + quantity + ' ticket' + (quantity === 1 ? '' : 's') + ')';
-  const notes = { any: counts.all + ' places on sale' + why };
-  model.tiers.forEach(function (tier) { notes[tier.key] = (counts.tiers[tier.key] || 0) + ' seats on sale in the ' + tier.label.toLowerCase() + ' tier' + why; });
+  const noun = quantity === 1 ? 'seats' : 'options for ' + quantity + ' tickets';
+  const notes = { any: counts.all + ' ' + (quantity === 1 ? 'places' : 'options for ' + quantity + ' tickets') + ' on sale' + mapCountWhy(quantity) };
+  model.tiers.forEach(function (tier) { notes[tier.key] = (counts.tiers[tier.key] || 0) + ' ' + noun + ' in the ' + tier.label.toLowerCase() + ' tier' + mapCountWhy(quantity); });
   return notes;
 }
 
-/** What the Seats pills' counts mean when they come from the venue's seat map. */
 function seatCountNotes(counts, quantity) {
-  const places = counts.standing > 0 ? counts.seats + ' seats and ' + counts.standing + ' standing tickets' : counts.seats + ' seats';
-  const why = ' (the venue\'s seat map: every one on sale, whatever the quantity or other filters; Ticketmaster\'s list holds only what it offers for ' + quantity + ' ticket' + (quantity === 1 ? '' : 's') + ')';
+  const noun = quantity === 1 ? 'seats' : 'options for ' + quantity + ' tickets';
+  const parts = quantity === 1
+    ? counts.seats + ' seats' + (counts.standing > 0 ? ' and ' + counts.standing + ' standing tickets' : '')
+    : counts.seatOptions + ' seating options' + (counts.standingOptions > 0 ? ' and ' + counts.standingOptions + ' standing ' + (counts.standingOptions === 1 ? 'party' : 'parties') + ' of ' + quantity : '');
   return {
-    all: places + ' on sale' + why,
-    firstrow: counts.firstrow + ' seats on sale in the first row of each tier' + why,
-    frontrows: counts.frontrows + ' seats on sale in those rows' + why,
+    all: parts + ' on sale' + mapCountWhy(quantity),
+    firstrow: counts.firstrow + ' ' + noun + ' in the first row of each tier' + mapCountWhy(quantity),
+    frontrows: counts.frontrows + ' ' + noun + ' in those rows' + mapCountWhy(quantity),
   };
 }
 
@@ -63,8 +70,9 @@ function noMatchesMessage(info) {
 /** `readerDeps` is for tests (see createPageReader). */
 /**
  * `mapTiers()` -> { words: Set of tier words, byBlock: Map(block id -> tier word) } or null: the tiers the venue's seat map names (lib/tiers.js).
- * `seatCounts(rowConfig)` -> { all, seats, standing, firstrow, frontrows } or null: how many places are on sale by the venue's own seat map. The Seats pills
- * show those (they do not depend on any filter, nor on what the list happens to hold); without them the pills count the list's tickets.
+ * `seatCounts(config)` -> { all, seatOptions, standingOptions, seats, standing, firstrow, frontrows, tiers } or null: how many seating options there are for the
+ * quantity chosen, by the venue's own seat map (see lib/map-filters.js). The Seats and Tier pills show those (they depend on the quantity, not on any
+ * filter, nor on what the list happens to hold); without them the pills count the list's tickets.
  * `onSections({ sections, visible, matching, standingOnly, ready })` hears about the sections after every render, for the venue's seat map (see map.js);
  * `onSectionHover(name | null, open)` hears when the mouse goes onto a section in the list (`open`: it is open) or off it;
  * `onMapReport()` -> a short message: the "Map report" button was pressed (see display.js);
@@ -342,7 +350,7 @@ export function createApp({ settings, version, readerDeps, seatCounts, mapTiers,
     // buildSectionGroups annotates tickets in place; keep the snapshot pristine.
     const result = buildSectionGroups(snapshot.tickets.map(function (t) { return Object.assign({}, t); }), Object.assign({ rowConfig: rowConfig(), customBadges, tierModel }, state));
     const tierOf = tierModel ? tierModel.ofSeat : null;
-    const fromMap = seatCounts ? seatCounts(Object.assign({}, rowConfig(), { tierOf, tierKeys: tierModel ? tierModel.keys : [] })) : null;
+    const fromMap = seatCounts ? seatCounts(Object.assign({}, rowConfig(), { tierOf, tierKeys: tierModel ? tierModel.keys : [], quantity: snapshot.qty })) : null;
     if (fromMap) result.counts.seat = { all: fromMap.all, firstrow: fromMap.firstrow, frontrows: fromMap.frontrows };
     if (fromMap && tierModel) result.counts.tier = Object.assign({ any: fromMap.all }, fromMap.tiers);
     view.setSeatCountNotes(fromMap ? seatCountNotes(fromMap, snapshot.qty) : null);

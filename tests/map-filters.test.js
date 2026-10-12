@@ -201,6 +201,38 @@ describe('how many places are on sale, by the map', () => {
     expect(seatCounts(availability, { firstRows: [1], frontRows: 14 }).frontrows).toBe(49);
   });
 
+  it('counts seating options for the quantity, not seats: groups of that many neighbouring seats in a row, no seat counted twice', () => {
+    // 50 seats on sale in runs; 822 standing tickets (804 + 14 + 4)
+    const at = (quantity) => seatCounts(availability, { firstRows: [1], frontRows: 5, quantity });
+    expect(at(1)).toMatchObject({ seatOptions: 50, standingOptions: 822, all: 872, seats: 50, standing: 822, quantity: 1 });
+    expect(at(2)).toMatchObject({ seatOptions: 21, standingOptions: 411, all: 432, seats: 50, standing: 822, quantity: 2 }); // 402 + 7 + 2 standing pairs
+    expect(at(3)).toMatchObject({ seatOptions: 11, standingOptions: 273, all: 284 });
+    expect(at(4)).toMatchObject({ seatOptions: 4, standingOptions: 205, all: 209 });
+  });
+
+  it('holds a run of 3 as one option for 2 tickets (the seat left over is none), and counts it as a block\'s option in its tier and row', () => {
+    // NORTH MIDDLE 3: row M has runs of 3, 3 and 1 (38-40, 43-45, 47); row N one of 3 (39-41)
+    const m = seatCounts(availability, { firstRows: ['A', 'M', 'S'], frontRows: 1, quantity: 2 });
+    expect(m.firstrow).toBe(2); // row M, the first of its tier: one pair in each run of 3
+    expect(m.frontrows).toBe(2);
+    const three = seatCounts(availability, { firstRows: ['A', 'M', 'S'], frontRows: 1, quantity: 3 });
+    expect(three.firstrow).toBe(2); // the two runs of 3 in row M
+  });
+
+  it('counts the options of each tier for the quantity', () => {
+    const blockTiers = new Map(geometry.blocks.map((b) => [b.id, tierWord(b.name)]).filter(([, w]) => w));
+    const model = buildTierModel({ firstRows: [1], words: new Set(blockTiers.values()), blockTiers });
+    const at = (quantity) => seatCounts(availability, { firstRows: [1], frontRows: 5, tierOf: model.ofSeat, tierKeys: model.keys, quantity }).tiers;
+    expect(at(1)).toEqual({ lower: 37, middle: 12, upper: 1 });
+    expect(at(2)).toEqual({ lower: 17, middle: 4, upper: 0 }); // NORTH LOWER 1 (4) + EAST LOWER 8 (13); NORTH MIDDLE 3 (3) + 4 (1); WEST UPPER 1 has one seat
+    expect(at(3)).toEqual({ lower: 8, middle: 3, upper: 0 });
+  });
+
+  it('counts for a quantity that is not a whole number above 0 as one ticket', () => {
+    [0, -2, null, undefined, NaN].forEach((quantity) => expect(seatCounts(availability, { firstRows: [1], frontRows: 5, quantity }).quantity).toBe(1));
+    expect(seatCounts(availability, { firstRows: [1], frontRows: 5, quantity: 2.9 }).quantity).toBe(2);
+  });
+
   it('has no row for standing, and none for a seat in a row it cannot rank', () => {
     expect(seatCounts(availability, { firstRows: [1], frontRows: 99 }).frontrows).toBe(50); // every seat, none of the standing
   });

@@ -610,10 +610,24 @@ describe('the Seats pills\' counts, from the venue\'s seat map', () => {
     document.body.append(app.root);
     app.start();
     const titles = Object.fromEntries(qa('[data-seat]').map((p) => [p.getAttribute('data-seat'), p.title]));
-    expect(titles.all).toMatch(/^50 seats and 822 standing tickets on sale \(the venue's seat map: every one on sale, whatever the quantity or other filters; Ticketmaster's list holds only what it offers for \d+ tickets?\)$/);
-    expect(titles.firstrow).toMatch(/^7 seats on sale in the first row of each tier/);
+    expect(titles.all).toBe("50 seats and 822 standing tickets on sale (the venue's seat map: every seat on sale, whatever the other filters; Ticketmaster's list holds only what it offers)"); // (one ticket: a seat is an option)
+    expect(titles.firstrow).toMatch(/^7 seats in the first row of each tier/);
     expect(titles.frontrows).toMatch(/^The first 5 rows of each tier\./); // what it is
-    expect(titles.frontrows).toMatch(/31 seats on sale in those rows/); // what its count is
+    expect(titles.frontrows).toMatch(/31 seats in those rows/); // what its count is
+  });
+
+  it('are asked for with the quantity on the page, and say on hover that they are seating options for it', () => {
+    sampleCards();
+    document.body.insertAdjacentHTML('afterbegin', '<div role="spinbutton" aria-valuenow="2"></div>'); // Ticketmaster's quantity stepper: 2 tickets
+    const seatCounts = vi.fn(() => ({ all: 432, seatOptions: 21, standingOptions: 411, seats: 50, standing: 822, firstrow: 2, frontrows: 9, tiers: {} }));
+    app = createApp({ settings: normalizeSettings({ loadMode: 'scroll' }), version: '1.2.3', seatCounts });
+    document.body.append(app.root);
+    app.start();
+    expect(seatCounts).toHaveBeenCalledWith(expect.objectContaining({ quantity: 2 }));
+    expect(seatPills()).toEqual(['Any (432)', '🥇 1st Row (2)', '⭐ First 5 Rows (9)']);
+    const titles = Object.fromEntries(qa('[data-seat]').map((p) => [p.getAttribute('data-seat'), p.title]));
+    expect(titles.all).toBe("21 seating options and 411 standing parties of 2 on sale (the venue's seat map: groups of 2 neighbouring seats in a row, whatever the other filters; Ticketmaster's list holds only what it offers for 2 tickets)");
+    expect(titles.firstrow).toMatch(/^2 options for 2 tickets in the first row of each tier \(the venue's seat map: groups of 2 neighbouring seats/);
   });
 
   it('are the list\'s tickets, as before, when the map has nothing to say', () => {
@@ -712,7 +726,7 @@ describe('the tier choice (Lower | Middle | Upper)', () => {
     await open(undefined, { options: { seatCounts } });
     expect(seatCounts.mock.calls[seatCounts.mock.calls.length - 1][0].tierKeys).toEqual(['lower', 'upper']); // (once the venue's rows are known)
     expect(tierPills()).toEqual(['Any (872)', 'Lower (37)', 'Upper (13)']);
-    expect(q('[data-tier="lower"]').title).toMatch(/^37 seats on sale in the lower tier \(the venue's seat map: every one on sale/);
+    expect(q('[data-tier="lower"]').title).toMatch(/^37 seats in the lower tier \(the venue's seat map: every seat on sale/);
     q('[data-tier="upper"]').click();
     expect(tierPills()).toEqual(['Any (872)', 'Lower (37)', 'Upper (13)']); // not moved by the choice
   });

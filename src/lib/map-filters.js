@@ -140,31 +140,50 @@ export function evaluateAvailability(availability, geometry, f, namesFor) {
 }
 
 /**
- * How many places are on sale, by what the venue's map knows: { all, seats, standing, firstrow, frontrows }, or null without its data.
- * `seats` is every seat on sale (whatever the quantity: a seat alone counts), `standing` the standing tickets, `all` both, `firstrow` /
- * `frontrows` the seats in the first row / first N rows of each tier (the same tiers and rows as the list: `config` = { firstRows,
- * frontRows }), and `tiers` the seats on sale in each tier (`config.tierOf(seat)` -> a tier key, `config.tierKeys` the keys; {} without them).
- * Nothing here depends on any filter.
+ * How many SEATING OPTIONS there are for the quantity asked, by what the venue's map knows: { all, seatOptions, standingOptions, firstrow,
+ * frontrows, tiers, seats, standing, quantity }, or null without its data.
+ * An option is a group of `quantity` neighbouring seats on sale in a row (one inventory type), no seat counted twice: a run of 5 seats
+ * holds 2 options for 2 tickets, 1 for 3, and the single seat left over is none. Standing: the tickets on sale in `quantity`s. For one
+ * ticket an option is a seat. `all` is both kinds, `firstrow` / `frontrows` the seat options in the first row / first N rows of each tier
+ * (the same tiers and rows as the list: `config` = { firstRows, frontRows, quantity }), `tiers` those in each tier (`config.tierOf(seat)`
+ * -> a tier key, `config.tierKeys` the keys; {} without them). `seats` and `standing` are the raw numbers on sale. Nothing here depends
+ * on any filter, only on the quantity.
  */
 export function seatCounts(availability, config) {
   if (!availability) return null;
   const firstRows = (config && config.firstRows) || [1];
   const frontRows = (config && config.frontRows) || 5;
+  const quantity = config && config.quantity > 0 ? Math.floor(config.quantity) : 1;
+  let seatOptions = 0;
   let firstrow = 0;
   let frontrows = 0;
   const tiers = {};
   const tierOf = config && typeof config.tierOf === 'function' ? config.tierOf : null;
   ((config && config.tierKeys) || []).forEach(function (key) { tiers[key] = 0; });
-  availability.seats.forEach(function (seat) {
-    if (tierOf) {
-      const key = tierOf(seat);
-      if (key && key in tiers) tiers[key] += 1;
-    }
-    const position = rowPosition(rowRank(seat.row), firstRows);
-    if (!position) return;
-    if (position.index === 1) firstrow += 1;
-    if (position.index <= frontRows) frontrows += 1;
+  availability.byBlock.forEach(function (info) {
+    const byInventory = new Map();
+    info.seats.forEach(function (seat) {
+      if (!byInventory.has(seat.inventory)) byInventory.set(seat.inventory, []);
+      byInventory.get(seat.inventory).push(seat);
+    });
+    byInventory.forEach(function (seats) {
+      consecutiveRuns(seats).forEach(function (run) {
+        const options = Math.floor(run.length / quantity);
+        if (options === 0) return;
+        seatOptions += options;
+        const first = run[0]; // (a run is in one row of one block)
+        if (tierOf) {
+          const key = tierOf(first);
+          if (key && key in tiers) tiers[key] += options;
+        }
+        const position = rowPosition(rowRank(first.row), firstRows);
+        if (!position) return;
+        if (position.index === 1) firstrow += options;
+        if (position.index <= frontRows) frontrows += options;
+      });
+    });
   });
   const standing = availability.standing.reduce(function (n, facet) { return n + facet.count; }, 0);
-  return { all: availability.seats.length + standing, seats: availability.seats.length, standing, firstrow, frontrows, tiers };
+  const standingOptions = availability.standing.reduce(function (n, facet) { return n + Math.floor(facet.count / quantity); }, 0);
+  return { all: seatOptions + standingOptions, seatOptions, standingOptions, seats: availability.seats.length, standing, firstrow, frontrows, tiers, quantity };
 }
